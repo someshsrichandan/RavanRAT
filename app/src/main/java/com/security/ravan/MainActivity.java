@@ -112,6 +112,12 @@ public class MainActivity extends AppCompatActivity {
             permissionsNeeded.add(Manifest.permission.READ_CONTACTS);
         }
 
+        // Phone state permission for device info
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.READ_PHONE_STATE);
+        }
+
         if (!permissionsNeeded.isEmpty()) {
             ActivityCompat.requestPermissions(this,
                     permissionsNeeded.toArray(new String[0]), PERMISSION_REQUEST_CODE);
