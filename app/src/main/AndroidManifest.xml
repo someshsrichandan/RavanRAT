@@ -32,8 +32,11 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
-    <!-- Audio for Video Recording -->
+    <!-- Audio for Video Recording and Call Recording -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    
+    <!-- Phone Call Detection -->
+    <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
 
     <!-- Overlay Permission for Background Camera -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -91,6 +94,24 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Call Record Service for audio capture -->
+        <service
+            android:name=".CallRecordService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Call Receiver for detecting incoming/outgoing calls -->
+        <receiver
+            android:name=".CallReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+                <action android:name="android.intent.action.NEW_OUTGOING_CALL" />
             </intent-filter>
         </receiver>
 
