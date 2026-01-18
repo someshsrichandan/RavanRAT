@@ -160,13 +160,24 @@ function Show-ManualJavaInstall {
 }
 
 function New-Keystore {
-    Write-Host "[*] Keystore Configuration" -ForegroundColor Cyan
-    Write-Host ""
+    param([bool]$AutoGenerate = $false)
     
     $keystorePath = Join-Path $ProjectDir "ravan-keystore.jks"
     $keystorePropsFile = Join-Path $ProjectDir "keystore.properties"
     
+    # Default values
+    $keyAlias = $DefaultSettings.KeyAlias
+    $keystorePass = $DefaultSettings.KeystorePass
+    $cnName = "Ravan Developer"
+    $orgName = "Ravan Security"
+    $country = "US"
+    $validityDays = 25 * 365
+    
     if (Test-Path $keystorePath) {
+        if ($AutoGenerate) {
+            Write-Host "[OK] Keystore already exists" -ForegroundColor Green
+            return
+        }
         Write-Host "[!] Keystore already exists at: $keystorePath" -ForegroundColor Yellow
         $regenerate = Read-Host "    Generate new keystore? (y/N)"
         if ($regenerate -ne "y" -and $regenerate -ne "Y") {
@@ -176,27 +187,30 @@ function New-Keystore {
         Remove-Item $keystorePath -Force
     }
     
-    Write-Host "[>] Enter keystore details:" -ForegroundColor Magenta
-    Write-Host ""
-    
-    $keyAlias = Read-Host "    Key alias [$($DefaultSettings.KeyAlias)]"
-    if ([string]::IsNullOrEmpty($keyAlias)) { $keyAlias = $DefaultSettings.KeyAlias }
-    
-    $keystorePass = Read-Host "    Keystore password [$($DefaultSettings.KeystorePass)]"
-    if ([string]::IsNullOrEmpty($keystorePass)) { $keystorePass = $DefaultSettings.KeystorePass }
-    
-    $cnName = Read-Host "    Your name [Ravan Developer]"
-    if ([string]::IsNullOrEmpty($cnName)) { $cnName = "Ravan Developer" }
-    
-    $orgName = Read-Host "    Organization [Ravan Security]"
-    if ([string]::IsNullOrEmpty($orgName)) { $orgName = "Ravan Security" }
-    
-    $country = Read-Host "    Country code [US]"
-    if ([string]::IsNullOrEmpty($country)) { $country = "US" }
-    
-    $validityYears = Read-Host "    Validity in years [25]"
-    if ([string]::IsNullOrEmpty($validityYears)) { $validityYears = 25 }
-    $validityDays = [int]$validityYears * 365
+    if (-not $AutoGenerate) {
+        Write-Host "[*] Keystore Configuration" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "[>] Enter keystore details (press Enter for defaults):" -ForegroundColor Magenta
+        Write-Host ""
+        
+        $input = Read-Host "    Key alias [$keyAlias]"
+        if (-not [string]::IsNullOrEmpty($input)) { $keyAlias = $input }
+        
+        $input = Read-Host "    Keystore password [$keystorePass]"
+        if (-not [string]::IsNullOrEmpty($input)) { $keystorePass = $input }
+        
+        $input = Read-Host "    Your name [$cnName]"
+        if (-not [string]::IsNullOrEmpty($input)) { $cnName = $input }
+        
+        $input = Read-Host "    Organization [$orgName]"
+        if (-not [string]::IsNullOrEmpty($input)) { $orgName = $input }
+        
+        $input = Read-Host "    Country code [$country]"
+        if (-not [string]::IsNullOrEmpty($input)) { $country = $input }
+    }
+    else {
+        Write-Host "[*] Auto-generating keystore with default values..." -ForegroundColor Cyan
+    }
     
     Write-Host ""
     Write-Host "[*] Generating keystore..." -ForegroundColor Cyan
@@ -229,9 +243,11 @@ keyPassword=$keystorePass
         }
         $config | ConvertTo-Json | Set-Content $ConfigFile
         
-        # Show fingerprint
-        Write-Host "[*] Certificate SHA-256 fingerprint:" -ForegroundColor Cyan
-        & keytool -list -v -keystore $keystorePath -storepass $keystorePass -alias $keyAlias 2>$null | Select-String "SHA256:"
+        if (-not $AutoGenerate) {
+            # Show fingerprint
+            Write-Host "[*] Certificate SHA-256 fingerprint:" -ForegroundColor Cyan
+            & keytool -list -v -keystore $keystorePath -storepass $keystorePass -alias $keyAlias 2>$null | Select-String "SHA256:"
+        }
         Write-Host ""
     }
     catch {
@@ -396,11 +412,19 @@ function Build-Apk {
         }
     }
     
+    # Check if keystore exists - auto-generate if not
+    $keystoreFile = Join-Path $ProjectDir "ravan-keystore.jks"
+    if (-not (Test-Path $keystoreFile)) {
+        Write-Host "[!] No keystore found. Auto-generating..." -ForegroundColor Yellow
+        New-Keystore -AutoGenerate $true
+        Write-Host ""
+    }
+    
     Write-Host "[*] Running Gradle build..." -ForegroundColor Cyan
     Write-Host ""
     
-    # Run gradle
-    & .\gradlew.bat assembleRelease --no-daemon 2>&1 | ForEach-Object {
+    # Run gradle - build both release and debug
+    & .\gradlew.bat assembleRelease assembleDebug --no-daemon 2>&1 | ForEach-Object {
         if ($_ -match "BUILD SUCCESSFUL") {
             Write-Host $_ -ForegroundColor Green
         }
@@ -415,10 +439,7 @@ function Build-Apk {
         }
     }
     
-    # Check output
-    $apkPath = Join-Path $ProjectDir "app\build\outputs\apk\release\app-release.apk"
-    $unsignedApk = Join-Path $ProjectDir "app\build\outputs\apk\release\app-release-unsigned.apk"
-    
+    # Create output folder
     $outputDir = Join-Path $ScriptDir "output"
     if (-not (Test-Path $outputDir)) {
         New-Item -ItemType Directory -Path $outputDir | Out-Null
@@ -428,40 +449,42 @@ function Build-Apk {
     $appName = if ($config.AppName) { $config.AppName -replace ' ', '_' } else { "Ravan" }
     $versionName = if ($config.VersionName) { $config.VersionName } else { "2.0" }
     
-    $finalApk = $null
+    $apkFound = $false
     
-    if (Test-Path $apkPath) {
-        $finalApk = $apkPath
-    }
-    elseif (Test-Path $unsignedApk) {
-        Write-Host "[*] Signing APK..." -ForegroundColor Yellow
-        
-        if ($config.KeystorePath -and $config.KeyAlias -and $config.KeystorePass) {
-            $signedApk = Join-Path $ProjectDir "app\build\outputs\apk\release\app-release-signed.apk"
-            
-            & jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 `
-                -keystore $config.KeystorePath -storepass $config.KeystorePass `
-                -keypass $config.KeystorePass -signedjar $signedApk $unsignedApk $config.KeyAlias 2>$null
-            
-            if (Test-Path $signedApk) {
-                $finalApk = $signedApk
-            }
-        }
+    # Signed release APK
+    $releaseApk = Join-Path $ProjectDir "app\build\outputs\apk\release\app-release.apk"
+    if (Test-Path $releaseApk) {
+        $outputSigned = Join-Path $outputDir "$appName-v$versionName-signed-$timestamp.apk"
+        Copy-Item $releaseApk $outputSigned -Force
+        Write-Host "[OK] Signed APK: $outputSigned" -ForegroundColor Green
+        $apkFound = $true
     }
     
-    if ($finalApk) {
-        $outputApk = Join-Path $outputDir "$appName-v$versionName-$timestamp.apk"
-        Copy-Item $finalApk $outputApk -Force
-        
+    # Unsigned release APK
+    $unsignedApk = Join-Path $ProjectDir "app\build\outputs\apk\release\app-release-unsigned.apk"
+    if (Test-Path $unsignedApk) {
+        $outputUnsigned = Join-Path $outputDir "$appName-v$versionName-unsigned-$timestamp.apk"
+        Copy-Item $unsignedApk $outputUnsigned -Force
+        Write-Host "[OK] Unsigned APK: $outputUnsigned" -ForegroundColor Green
+        $apkFound = $true
+    }
+    
+    # Debug APK
+    $debugApk = Join-Path $ProjectDir "app\build\outputs\apk\debug\app-debug.apk"
+    if (Test-Path $debugApk) {
+        $outputDebug = Join-Path $outputDir "$appName-v$versionName-debug-$timestamp.apk"
+        Copy-Item $debugApk $outputDebug -Force
+        Write-Host "[OK] Debug APK: $outputDebug" -ForegroundColor Green
+        $apkFound = $true
+    }
+    
+    if ($apkFound) {
         Write-Host ""
         Write-Host "================================================================" -ForegroundColor Green
         Write-Host "                    BUILD SUCCESSFUL!                           " -ForegroundColor Green
         Write-Host "================================================================" -ForegroundColor Green
         Write-Host ""
-        Write-Host "[OK] APK saved to: $outputApk" -ForegroundColor Green
-        
-        $apkSize = (Get-Item $outputApk).Length / 1MB
-        Write-Host "    APK Size: $([math]::Round($apkSize, 2)) MB" -ForegroundColor Cyan
+        Write-Host "[OK] APKs saved to: $outputDir" -ForegroundColor Green
         Write-Host ""
         
         Write-Host "================================================================" -ForegroundColor Magenta
@@ -482,8 +505,9 @@ function Build-Apk {
         Write-Host "                      BUILD FAILED!                             " -ForegroundColor Red
         Write-Host "================================================================" -ForegroundColor Red
         Write-Host ""
-        Write-Host "[!] Check the error messages above" -ForegroundColor Red
+        Write-Host "[!] No APK files found. Check errors above." -ForegroundColor Red
         Write-Host "[!] Common fixes:" -ForegroundColor Yellow
+        Write-Host "    - Run Full Build (option 1) first to generate keystore"
         Write-Host "    - Ensure Java 11+ is installed and in PATH"
         Write-Host "    - Check internet connection"
         Write-Host "    - Run: .\gradlew --stop; .\gradlew clean"

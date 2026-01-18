@@ -121,42 +121,48 @@ echo.
 goto :eof
 
 :generate_keystore
-echo [96m[*] Keystore Configuration[0m
-echo.
-
 set "KEYSTORE_PATH=%PROJECT_DIR%\ravan-keystore.jks"
 
+REM Default values
+set "KEY_ALIAS=ravan-key"
+set "KEYSTORE_PASS=ravan123"
+set "CN_NAME=Ravan Developer"
+set "ORG_NAME=Ravan Security"
+set "COUNTRY=US"
+set "VALIDITY_DAYS=9125"
+
 if exist "%KEYSTORE_PATH%" (
+    if "%AUTO_KEYSTORE%"=="1" (
+        echo [92m[OK] Keystore already exists[0m
+        goto :eof
+    )
     echo [93m[!] Keystore already exists at: %KEYSTORE_PATH%[0m
     set /p "REGENERATE=    Generate new keystore? (y/N): "
     if /i not "!REGENERATE!"=="y" (
-        echo [92m[✓] Using existing keystore[0m
+        echo [92m[OK] Using existing keystore[0m
         goto :eof
     )
     del "%KEYSTORE_PATH%" >nul 2>nul
 )
 
-echo [95m[^>] Enter keystore details:[0m
-echo.
-
-set /p "KEY_ALIAS=    Key alias [ravan-key]: "
-if "!KEY_ALIAS!"=="" set "KEY_ALIAS=ravan-key"
-
-set /p "KEYSTORE_PASS=    Keystore password [ravan123]: "
-if "!KEYSTORE_PASS!"=="" set "KEYSTORE_PASS=ravan123"
-
-set /p "CN_NAME=    Your name [Ravan Developer]: "
-if "!CN_NAME!"=="" set "CN_NAME=Ravan Developer"
-
-set /p "ORG_NAME=    Organization [Ravan Security]: "
-if "!ORG_NAME!"=="" set "ORG_NAME=Ravan Security"
-
-set /p "COUNTRY=    Country code [US]: "
-if "!COUNTRY!"=="" set "COUNTRY=US"
-
-set /p "VALIDITY_YEARS=    Validity in years [25]: "
-if "!VALIDITY_YEARS!"=="" set "VALIDITY_YEARS=25"
-set /a VALIDITY_DAYS=!VALIDITY_YEARS! * 365
+if not "%AUTO_KEYSTORE%"=="1" (
+    echo [96m[*] Keystore Configuration[0m
+    echo.
+    echo [95m[^>] Enter keystore details (press Enter for defaults):[0m
+    echo.
+    set /p "KEY_ALIAS=    Key alias [ravan-key]: "
+    if "!KEY_ALIAS!"=="" set "KEY_ALIAS=ravan-key"
+    set /p "KEYSTORE_PASS=    Keystore password [ravan123]: "
+    if "!KEYSTORE_PASS!"=="" set "KEYSTORE_PASS=ravan123"
+    set /p "CN_NAME=    Your name [Ravan Developer]: "
+    if "!CN_NAME!"=="" set "CN_NAME=Ravan Developer"
+    set /p "ORG_NAME=    Organization [Ravan Security]: "
+    if "!ORG_NAME!"=="" set "ORG_NAME=Ravan Security"
+    set /p "COUNTRY=    Country code [US]: "
+    if "!COUNTRY!"=="" set "COUNTRY=US"
+) else (
+    echo [96m[*] Auto-generating keystore with default values...[0m
+)
 
 echo.
 echo [96m[*] Generating keystore...[0m
@@ -164,7 +170,7 @@ echo [96m[*] Generating keystore...[0m
 keytool -genkeypair -alias "!KEY_ALIAS!" -keyalg RSA -keysize 2048 -validity !VALIDITY_DAYS! -keystore "%KEYSTORE_PATH%" -storepass "!KEYSTORE_PASS!" -keypass "!KEYSTORE_PASS!" -dname "CN=!CN_NAME!, O=!ORG_NAME!, C=!COUNTRY!" 2>nul
 
 if %errorlevel% equ 0 (
-    echo [92m[✓] Keystore generated successfully![0m
+    echo [92m[OK] Keystore generated successfully![0m
     echo.
     
     REM Create keystore.properties for Gradle
@@ -173,20 +179,22 @@ if %errorlevel% equ 0 (
     echo storePassword=!KEYSTORE_PASS!>> "!KEYSTORE_PROPS!"
     echo keyAlias=!KEY_ALIAS!>> "!KEYSTORE_PROPS!"
     echo keyPassword=!KEYSTORE_PASS!>> "!KEYSTORE_PROPS!"
-    echo [92m[✓] Created keystore.properties for Gradle[0m
+    echo [92m[OK] Created keystore.properties for Gradle[0m
     
     REM Save to config
     echo KEYSTORE_PATH=%KEYSTORE_PATH%> "%CONFIG_FILE%"
     echo KEY_ALIAS=!KEY_ALIAS!>> "%CONFIG_FILE%"
     echo KEYSTORE_PASS=!KEYSTORE_PASS!>> "%CONFIG_FILE%"
     
-    REM Show certificate info
-    echo [96m[*] Certificate fingerprint:[0m
-    keytool -list -v -keystore "%KEYSTORE_PATH%" -storepass "!KEYSTORE_PASS!" -alias "!KEY_ALIAS!" 2>nul | findstr "SHA256:"
-    echo.
+    if not "%AUTO_KEYSTORE%"=="1" (
+        REM Show certificate info
+        echo [96m[*] Certificate fingerprint:[0m
+        keytool -list -v -keystore "%KEYSTORE_PATH%" -storepass "!KEYSTORE_PASS!" -alias "!KEY_ALIAS!" 2>nul | findstr "SHA256:"
+        echo.
+    )
 ) else (
     echo [91m[!] Failed to generate keystore[0m
-    pause
+    if not "%AUTO_KEYSTORE%"=="1" pause
     exit /b 1
 )
 goto :eof
@@ -321,47 +329,21 @@ if exist "%CONFIG_FILE%" (
     )
 )
 
+REM Check if keystore exists - auto-generate if not
+set "KEYSTORE_FILE=%PROJECT_DIR%\ravan-keystore.jks"
+if not exist "!KEYSTORE_FILE!" (
+    echo [93m[!] No keystore found. Auto-generating...[0m
+    set "AUTO_KEYSTORE=1"
+    call :generate_keystore
+    set "AUTO_KEYSTORE="
+    echo.
+)
+
 echo [96m[*] Running Gradle build...[0m
 echo.
 
-call gradlew.bat assembleRelease
+call gradlew.bat assembleRelease assembleDebug
 
-REM Check if build was successful
-set "APK_PATH=%PROJECT_DIR%\app\build\outputs\apk\release\app-release.apk"
-set "UNSIGNED_APK=%PROJECT_DIR%\app\build\outputs\apk\release\app-release-unsigned.apk"
-
-if exist "%APK_PATH%" (
-    set "FINAL_APK=%APK_PATH%"
-    goto :copy_apk
-)
-
-if exist "%UNSIGNED_APK%" (
-    echo [93m[*] Signing APK...[0m
-    set "SIGNED_APK=%PROJECT_DIR%\app\build\outputs\apk\release\app-release-signed.apk"
-    
-    jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 -keystore "%KEYSTORE_PATH%" -storepass "!KEYSTORE_PASS!" -keypass "!KEYSTORE_PASS!" -signedjar "!SIGNED_APK!" "%UNSIGNED_APK%" "!KEY_ALIAS!" 2>nul
-    
-    if exist "!SIGNED_APK!" (
-        set "FINAL_APK=!SIGNED_APK!"
-        goto :copy_apk
-    )
-)
-
-REM Build failed
-echo.
-echo [91m╔══════════════════════════════════════════════════════════════╗[0m
-echo [91m║                      BUILD FAILED!                           ║[0m
-echo [91m╚══════════════════════════════════════════════════════════════╝[0m
-echo.
-echo [91m[!] Check the error messages above[0m
-echo [93m[!] Common fixes:[0m
-echo     - Ensure Java 11+ is installed and in PATH
-echo     - Check internet connection
-echo     - Run: gradlew --stop ^&^& gradlew clean
-pause
-exit /b 1
-
-:copy_apk
 REM Create output folder
 set "OUTPUT_DIR=%SCRIPT_DIR%output"
 if not exist "!OUTPUT_DIR!" mkdir "!OUTPUT_DIR!"
@@ -374,18 +356,61 @@ REM Create safe app name
 set "APP_NAME_SAFE=!APP_NAME: =_!"
 if "!APP_NAME_SAFE!"=="" set "APP_NAME_SAFE=Ravan"
 
-set "OUTPUT_APK=!OUTPUT_DIR!\!APP_NAME_SAFE!-v!VERSION_NAME!-!TIMESTAMP!.apk"
-copy /Y "!FINAL_APK!" "!OUTPUT_APK!" >nul
+REM Check for APKs and copy them
+set "APK_FOUND=0"
+
+REM Signed release APK
+set "RELEASE_APK=%PROJECT_DIR%\app\build\outputs\apk\release\app-release.apk"
+if exist "!RELEASE_APK!" (
+    set "OUTPUT_SIGNED=!OUTPUT_DIR!\!APP_NAME_SAFE!-v!VERSION_NAME!-signed-!TIMESTAMP!.apk"
+    copy /Y "!RELEASE_APK!" "!OUTPUT_SIGNED!" >nul
+    echo [92m[✓] Signed APK: !OUTPUT_SIGNED![0m
+    set "APK_FOUND=1"
+)
+
+REM Unsigned release APK
+set "UNSIGNED_APK=%PROJECT_DIR%\app\build\outputs\apk\release\app-release-unsigned.apk"
+if exist "!UNSIGNED_APK!" (
+    set "OUTPUT_UNSIGNED=!OUTPUT_DIR!\!APP_NAME_SAFE!-v!VERSION_NAME!-unsigned-!TIMESTAMP!.apk"
+    copy /Y "!UNSIGNED_APK!" "!OUTPUT_UNSIGNED!" >nul
+    echo [92m[✓] Unsigned APK: !OUTPUT_UNSIGNED![0m
+    set "APK_FOUND=1"
+)
+
+REM Debug APK
+set "DEBUG_APK=%PROJECT_DIR%\app\build\outputs\apk\debug\app-debug.apk"
+if exist "!DEBUG_APK!" (
+    set "OUTPUT_DEBUG=!OUTPUT_DIR!\!APP_NAME_SAFE!-v!VERSION_NAME!-debug-!TIMESTAMP!.apk"
+    copy /Y "!DEBUG_APK!" "!OUTPUT_DEBUG!" >nul
+    echo [92m[✓] Debug APK: !OUTPUT_DEBUG![0m
+    set "APK_FOUND=1"
+)
+
+if "!APK_FOUND!"=="0" (
+    echo.
+    echo [91m╔══════════════════════════════════════════════════════════════╗[0m
+    echo [91m║                      BUILD FAILED!                           ║[0m
+    echo [91m╚══════════════════════════════════════════════════════════════╝[0m
+    echo.
+    echo [91m[!] No APK files found. Check errors above.[0m
+    echo [93m[!] Common fixes:[0m
+    echo     - Run Full Build (option 1) first to generate keystore
+    echo     - Ensure Java 11+ is installed and in PATH
+    echo     - Check internet connection
+    echo     - Run: gradlew --stop ^&^& gradlew clean
+    pause
+    exit /b 1
+)
 
 echo.
 echo [92m╔══════════════════════════════════════════════════════════════╗[0m
 echo [92m║                    BUILD SUCCESSFUL!                         ║[0m
 echo [92m╚══════════════════════════════════════════════════════════════╝[0m
 echo.
-echo [92m[✓] APK saved to: !OUTPUT_APK![0m
+echo [92m[✓] APKs saved to: !OUTPUT_DIR![0m
 echo.
 echo [95m╔══════════════════════════════════════════════════════════════╗[0m
-echo [95m║  Developed by: Somesh                             ║[0m
+echo [95m║  Developed by: Somesh                                        ║[0m
 echo [95m║  GitHub:   https://github.com/someshsrichandan              ║[0m
 echo [95m║  LinkedIn: https://linkedin.com/in/someshsrichandan         ║[0m
 echo [95m╚══════════════════════════════════════════════════════════════╝[0m

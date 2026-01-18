@@ -22,8 +22,8 @@ android {
         applicationId "com.security.ravan"
         minSdk 26
         targetSdk 34
-        versionCode 20
-        versionName "2.0"
+        versionCode 3
+        versionName "1.0.1"
         
         // Read WEBHOOK_URL from local.properties
         def localProperties = new Properties()
@@ -76,3 +76,5 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
 }
+
+

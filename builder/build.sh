@@ -207,17 +207,30 @@ show_manual_java_install() {
 }
 
 # Generate keystore
+# Pass "auto" as argument for auto-generation with defaults
 generate_keystore() {
-    echo -e "${CYAN}[*] Keystore Configuration${NC}"
-    echo ""
+    local AUTO_MODE="$1"
     
     KEYSTORE_PATH="$PROJECT_DIR/ravan-keystore.jks"
+    KEYSTORE_PROPS="$PROJECT_DIR/keystore.properties"
+    
+    # Default values
+    KEY_ALIAS="ravan-key"
+    KEYSTORE_PASS="ravan123"
+    CN_NAME="Ravan Developer"
+    ORG_NAME="Ravan Security"
+    COUNTRY="US"
+    VALIDITY_DAYS=9125  # 25 years
     
     if [ -f "$KEYSTORE_PATH" ]; then
+        if [ "$AUTO_MODE" = "auto" ]; then
+            echo -e "${GREEN}[OK] Keystore already exists${NC}"
+            return
+        fi
         echo -e "${YELLOW}[!] Keystore already exists at: $KEYSTORE_PATH${NC}"
         read -p "    Generate new keystore? (y/N): " REGENERATE
         if [[ ! "$REGENERATE" =~ ^[Yy]$ ]]; then
-            echo -e "${GREEN}[✓] Using existing keystore${NC}"
+            echo -e "${GREEN}[OK] Using existing keystore${NC}"
             
             # Load existing config
             if [ -f "$CONFIG_FILE" ]; then
@@ -228,28 +241,30 @@ generate_keystore() {
         rm -f "$KEYSTORE_PATH"
     fi
     
-    echo -e "${PURPLE}[>] Enter keystore details:${NC}"
-    echo ""
-    
-    read -p "    Key alias [ravan-key]: " KEY_ALIAS
-    KEY_ALIAS=${KEY_ALIAS:-ravan-key}
-    
-    read -sp "    Keystore password (min 6 chars) [ravan123]: " KEYSTORE_PASS
-    echo ""
-    KEYSTORE_PASS=${KEYSTORE_PASS:-ravan123}
-    
-    read -p "    Your name [Ravan Developer]: " CN_NAME
-    CN_NAME=${CN_NAME:-Ravan Developer}
-    
-    read -p "    Organization [Ravan Security]: " ORG_NAME
-    ORG_NAME=${ORG_NAME:-Ravan Security}
-    
-    read -p "    Country code [US]: " COUNTRY
-    COUNTRY=${COUNTRY:-US}
-    
-    read -p "    Validity in years [25]: " VALIDITY_YEARS
-    VALIDITY_YEARS=${VALIDITY_YEARS:-25}
-    VALIDITY_DAYS=$((VALIDITY_YEARS * 365))
+    if [ "$AUTO_MODE" != "auto" ]; then
+        echo -e "${CYAN}[*] Keystore Configuration${NC}"
+        echo ""
+        echo -e "${PURPLE}[>] Enter keystore details (press Enter for defaults):${NC}"
+        echo ""
+        
+        read -p "    Key alias [$KEY_ALIAS]: " INPUT
+        [ -n "$INPUT" ] && KEY_ALIAS="$INPUT"
+        
+        read -sp "    Keystore password [$KEYSTORE_PASS]: " INPUT
+        echo ""
+        [ -n "$INPUT" ] && KEYSTORE_PASS="$INPUT"
+        
+        read -p "    Your name [$CN_NAME]: " INPUT
+        [ -n "$INPUT" ] && CN_NAME="$INPUT"
+        
+        read -p "    Organization [$ORG_NAME]: " INPUT
+        [ -n "$INPUT" ] && ORG_NAME="$INPUT"
+        
+        read -p "    Country code [$COUNTRY]: " INPUT
+        [ -n "$INPUT" ] && COUNTRY="$INPUT"
+    else
+        echo -e "${CYAN}[*] Auto-generating keystore with default values...${NC}"
+    fi
     
     echo ""
     echo -e "${CYAN}[*] Generating keystore...${NC}"
@@ -266,31 +281,32 @@ generate_keystore() {
         2>/dev/null
     
     if [ $? -eq 0 ]; then
-        echo -e "${GREEN}[✓] Keystore generated successfully!${NC}"
+        echo -e "${GREEN}[OK] Keystore generated successfully!${NC}"
         echo ""
         
         # Create keystore.properties for Gradle
-        KEYSTORE_PROPS="$PROJECT_DIR/keystore.properties"
         cat > "$KEYSTORE_PROPS" << EOF
 storeFile=ravan-keystore.jks
 storePassword=$KEYSTORE_PASS
 keyAlias=$KEY_ALIAS
 keyPassword=$KEYSTORE_PASS
 EOF
-        echo -e "${GREEN}[✓] Created keystore.properties for Gradle${NC}"
+        echo -e "${GREEN}[OK] Created keystore.properties for Gradle${NC}"
         
         # Save to config
         echo "KEYSTORE_PATH=$KEYSTORE_PATH" > "$CONFIG_FILE"
         echo "KEY_ALIAS=$KEY_ALIAS" >> "$CONFIG_FILE"
         echo "KEYSTORE_PASS=$KEYSTORE_PASS" >> "$CONFIG_FILE"
         
-        # Show certificate info
-        echo -e "${CYAN}[*] Certificate SHA-256 fingerprint:${NC}"
-        keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASS" -alias "$KEY_ALIAS" 2>/dev/null | grep "SHA256:"
-        echo ""
+        if [ "$AUTO_MODE" != "auto" ]; then
+            # Show certificate info
+            echo -e "${CYAN}[*] Certificate SHA-256 fingerprint:${NC}"
+            keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASS" -alias "$KEY_ALIAS" 2>/dev/null | grep "SHA256:"
+            echo ""
+        fi
     else
         echo -e "${RED}[!] Failed to generate keystore${NC}"
-        exit 1
+        [ "$AUTO_MODE" != "auto" ] && exit 1
     fi
 }
 
@@ -456,11 +472,19 @@ build_apk() {
         source "$CONFIG_FILE"
     fi
     
+    # Check if keystore exists - auto-generate if not
+    KEYSTORE_FILE="$PROJECT_DIR/ravan-keystore.jks"
+    if [ ! -f "$KEYSTORE_FILE" ]; then
+        echo -e "${YELLOW}[!] No keystore found. Auto-generating...${NC}"
+        generate_keystore "auto"
+        echo ""
+    fi
+    
     echo -e "${CYAN}[*] Running Gradle build...${NC}"
     echo ""
     
-    # Build release APK
-    ./gradlew assembleRelease --no-daemon 2>&1 | while read line; do
+    # Build both release and debug APK
+    ./gradlew assembleRelease assembleDebug --no-daemon 2>&1 | while read line; do
         if [[ $line == *"BUILD SUCCESSFUL"* ]]; then
             echo -e "${GREEN}$line${NC}"
         elif [[ $line == *"BUILD FAILED"* ]] || [[ $line == *"FAILURE"* ]]; then
@@ -472,52 +496,54 @@ build_apk() {
         fi
     done
     
-    # Check if build was successful
-    APK_PATH="$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
-    UNSIGNED_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release-unsigned.apk"
+    # Create output folder
+    OUTPUT_DIR="$SCRIPT_DIR/output"
+    mkdir -p "$OUTPUT_DIR"
     
-    if [ -f "$APK_PATH" ] || [ -f "$UNSIGNED_APK" ]; then
-        FINAL_APK="$APK_PATH"
-        if [ -f "$UNSIGNED_APK" ] && [ ! -f "$APK_PATH" ]; then
-            # Sign manually
-            echo -e "${YELLOW}[*] Signing APK...${NC}"
-            SIGNED_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release-signed.apk"
-            
-            jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
-                -keystore "$KEYSTORE_PATH" \
-                -storepass "$KEYSTORE_PASS" \
-                -keypass "$KEYSTORE_PASS" \
-                -signedjar "$SIGNED_APK" \
-                "$UNSIGNED_APK" \
-                "$KEY_ALIAS" 2>/dev/null
-            
-            FINAL_APK="$SIGNED_APK"
-        fi
-        
-        # Copy to output folder
-        OUTPUT_DIR="$SCRIPT_DIR/output"
-        mkdir -p "$OUTPUT_DIR"
-        
-        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-        APP_NAME_SAFE=$(echo "${APP_NAME:-Ravan}" | tr ' ' '_')
-        OUTPUT_APK="$OUTPUT_DIR/${APP_NAME_SAFE}-v${VERSION_NAME:-2.0}-${TIMESTAMP}.apk"
-        cp "$FINAL_APK" "$OUTPUT_APK"
-        
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    APP_NAME_SAFE=$(echo "${APP_NAME:-Ravan}" | tr ' ' '_')
+    VERSION="${VERSION_NAME:-2.0}"
+    
+    APK_FOUND=false
+    
+    # Signed release APK
+    RELEASE_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
+    if [ -f "$RELEASE_APK" ]; then
+        OUTPUT_SIGNED="$OUTPUT_DIR/${APP_NAME_SAFE}-v${VERSION}-signed-${TIMESTAMP}.apk"
+        cp "$RELEASE_APK" "$OUTPUT_SIGNED"
+        echo -e "${GREEN}[✓] Signed APK: $OUTPUT_SIGNED${NC}"
+        APK_FOUND=true
+    fi
+    
+    # Unsigned release APK
+    UNSIGNED_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release-unsigned.apk"
+    if [ -f "$UNSIGNED_APK" ]; then
+        OUTPUT_UNSIGNED="$OUTPUT_DIR/${APP_NAME_SAFE}-v${VERSION}-unsigned-${TIMESTAMP}.apk"
+        cp "$UNSIGNED_APK" "$OUTPUT_UNSIGNED"
+        echo -e "${GREEN}[✓] Unsigned APK: $OUTPUT_UNSIGNED${NC}"
+        APK_FOUND=true
+    fi
+    
+    # Debug APK
+    DEBUG_APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+    if [ -f "$DEBUG_APK" ]; then
+        OUTPUT_DEBUG="$OUTPUT_DIR/${APP_NAME_SAFE}-v${VERSION}-debug-${TIMESTAMP}.apk"
+        cp "$DEBUG_APK" "$OUTPUT_DEBUG"
+        echo -e "${GREEN}[✓] Debug APK: $OUTPUT_DEBUG${NC}"
+        APK_FOUND=true
+    fi
+    
+    if [ "$APK_FOUND" = true ]; then
         echo ""
         echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
         echo -e "${GREEN}║                    BUILD SUCCESSFUL!                         ║${NC}"
         echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
         echo ""
-        echo -e "${GREEN}[✓] APK saved to: $OUTPUT_APK${NC}"
-        echo ""
-        
-        # Get APK size
-        APK_SIZE=$(du -h "$OUTPUT_APK" | cut -f1)
-        echo -e "${CYAN}    APK Size: $APK_SIZE${NC}"
+        echo -e "${GREEN}[✓] APKs saved to: $OUTPUT_DIR${NC}"
         echo ""
         
         echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${PURPLE}║  Developed by: Somesh                             ║${NC}"
+        echo -e "${PURPLE}║  Developed by: Somesh                                        ║${NC}"
         echo -e "${PURPLE}║  GitHub:   https://github.com/someshsrichandan              ║${NC}"
         echo -e "${PURPLE}║  LinkedIn: https://linkedin.com/in/someshsrichandan         ║${NC}"
         echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════╝${NC}"
@@ -528,8 +554,9 @@ build_apk() {
         echo -e "${RED}║                      BUILD FAILED!                           ║${NC}"
         echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
         echo ""
-        echo -e "${RED}[!] Check the error messages above${NC}"
+        echo -e "${RED}[!] No APK files found. Check errors above.${NC}"
         echo -e "${YELLOW}[!] Common fixes:${NC}"
+        echo "    - Run Full Build (option 1) first to generate keystore"
         echo "    - Ensure Java 11+ is installed"
         echo "    - Check internet connection"
         echo "    - Run: ./gradlew --stop && ./gradlew clean"
