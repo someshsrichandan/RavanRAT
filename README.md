@@ -1,12 +1,28 @@
-# 🔥 Ravan RAT v2.0
+# 🔥 Ravan RAT
 
 ![Ravan Logo](ravanrat.png)
 
-**Android - Remote  Administration Tool with Web Panel**
+**Remote Android Administration Tool with Web Panel**
 
 ---
 
-## � Updates Every Sunday!
+## 🚨 Google Sheet Control - No Server Needed!
+
+> **No Port Forwarding. No Server. Just a Google Sheet.**
+
+Control devices using just a Google Sheet!
+
+- ✅ No need for port forwarding
+- ✅ No server setup required
+- ✅ Works behind any firewall/NAT
+- ✅ Control from anywhere with just a Google Sheet
+
+
+**Star ⭐ this repo to stay updated!**
+
+---
+
+## 📢 Updates Every Sunday!
 
 New features drop every week. Star ⭐ this repo to stay updated!
 
@@ -37,12 +53,12 @@ That's it! The builder handles everything - Java check, keystore, logo, and APK.
 
 ---
 
-## ✨ What's Inside
+## ✨ What It Can Do
 
 **Device Access**
 
 - 📁 File Manager - Browse & download files
-- � Call Logs - View call history
+- 📞 Call Logs - View call history
 - 👥 Contacts - Access saved contacts
 - 📱 Device Info - System details
 
@@ -52,7 +68,7 @@ That's it! The builder handles everything - Java check, keystore, logo, and APK.
 - 🎥 Live Stream - Real-time view
 - ⏺️ Video Recording
 
-**Audio** _(New in v2.0)_
+**Audio**
 
 - 🎤 Mic Recording - Ambient audio
 - 📞 Call Recording - Auto record calls
@@ -77,7 +93,7 @@ That's it! The builder handles everything - Java check, keystore, logo, and APK.
 
 ---
 
-## �️ Builder Features
+## 🛠️ Builder Features
 
 - ✅ Auto Java check/install
 - ✅ Keystore generation
@@ -111,10 +127,10 @@ function doPost(e) {
 
 ---
 
-## � Folder Structure
+## 📂 Folder Structure
 
 ```
-ravan-v2/
+ravan/
 ├── ravanrat.png          # Logo
 ├── builder/
 │   ├── build.sh          # Linux/Mac
@@ -123,21 +139,6 @@ ravan-v2/
 │   └── output/           # Built APKs
 └── app/                  # Android source
 ```
-
----
-
-## 🔜 Coming Soon
-
-- [ ] SMS Access
-- [ ] Location Tracking
-- [ ] Notification Reader
-- [ ] Keylogger
-- [ ] Screen Capture
-- [ ] App List
-- [ ] WhatsApp Backup
-- [ ] Gallery Access
-
-_Check back every Sunday for updates!_
 
 ---
 
@@ -153,9 +154,9 @@ All contributions welcome!
 
 ---
 
-## �‍💻 Developer
+## 👨‍💻 Developer
 
-**Somesh Srichandan**
+**Somesh**
 
 [![GitHub](https://img.shields.io/badge/GitHub-someshsrichandan-black?logo=github)](https://github.com/someshsrichandan)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-someshsrichandan-blue?logo=linkedin)](https://linkedin.com/in/someshsrichandan)
@@ -168,10 +169,10 @@ Educational purpose only. Don't use without permission. I'm not responsible for 
 
 ---
 
-## � License
+## 📜 License
 
 MIT License
 
 ---
 
-**⭐ Star this repo for weekly updates!**
+**⭐ Star this repo for updates!**
