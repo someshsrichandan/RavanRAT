@@ -1,8 +1,6 @@
 # 🔥 Ravan APK Builder
 
-<p align="center">
-  <b>Cross-platform build system for Ravan RAT</b>
-</p>
+
 
 <p align="center">
   <a href="https://github.com/someshsrichandan"><img src="https://img.shields.io/badge/Author-Somesh%20Srichandan-red?style=for-the-badge" alt="Author"></a>
