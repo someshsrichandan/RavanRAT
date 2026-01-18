@@ -14,8 +14,8 @@ android {
         applicationId "com.security.ravan"
         minSdk 26
         targetSdk 34
-        versionCode 6
-        versionName "1.5"
+        versionCode 7
+        versionName "1.7"
         
         // Read WEBHOOK_URL from local.properties
         def localProperties = new Properties()
