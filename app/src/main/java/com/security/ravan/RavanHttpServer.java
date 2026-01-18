@@ -1061,6 +1061,69 @@ public class RavanHttpServer extends NanoHTTPD {
         if (camId == null)
             camId = "0";
 
+        // Get resolution from params, default to "low" for mobile data optimization
+        String res = params.get("res");
+        if (res == null)
+            res = "low";
+
+        // Resolution presets optimized for different network speeds
+        int width, height, quality, fps;
+        String resLabel;
+        switch (res) {
+            case "ultra_low":
+                width = 160;
+                height = 120;
+                quality = 20;
+                fps = 2;
+                resLabel = "Ultra Low (160x120)";
+                break;
+            case "very_low":
+                width = 240;
+                height = 180;
+                quality = 25;
+                fps = 3;
+                resLabel = "Very Low (240x180)";
+                break;
+            case "low":
+            default:
+                width = 320;
+                height = 240;
+                quality = 30;
+                fps = 5;
+                resLabel = "Low (320x240) - DEFAULT";
+                break;
+            case "medium":
+                width = 480;
+                height = 360;
+                quality = 40;
+                fps = 8;
+                resLabel = "Medium (480x360)";
+                break;
+            case "high":
+                width = 640;
+                height = 480;
+                quality = 50;
+                fps = 10;
+                resLabel = "High (640x480)";
+                break;
+            case "very_high":
+                width = 800;
+                height = 600;
+                quality = 60;
+                fps = 12;
+                resLabel = "Very High (800x600)";
+                break;
+            case "hd":
+                width = 1280;
+                height = 720;
+                quality = 70;
+                fps = 15;
+                resLabel = "HD (1280x720)";
+                break;
+        }
+
+        int refreshRate = 1000 / fps; // Convert FPS to milliseconds
+
         StringBuilder html = new StringBuilder(HTML_HEADER);
         html.append("<div class=\"card\">");
         html.append("<h2 style=\"margin-bottom: 20px;\">&#128249; Live Camera Stream</h2>");
@@ -1077,16 +1140,27 @@ public class RavanHttpServer extends NanoHTTPD {
             }
         }
 
+        // Network info banner
+        html.append(
+                "<div style=\"background: rgba(52, 152, 219, 0.2); padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; text-align: center;\">");
+        html.append("<span style=\"color: #3498db; font-size: 0.85rem;\">&#128246; Current: ").append(resLabel);
+        html.append(" | ~").append(quality * width * height / 8000).append(" KB/frame</span>");
+        html.append("</div>");
+
         // Live stream viewer
         html.append("<div style=\"text-align: center; margin-bottom: 20px;\">");
         html.append(
-                "<div id=\"stream-container\" style=\"position: relative; display: inline-block; background: #000; border-radius: 10px; overflow: hidden; min-height: 240px;\">");
+                "<div id=\"stream-container\" style=\"position: relative; display: inline-block; background: #000; border-radius: 10px; overflow: hidden; min-height: 180px;\">");
         html.append(
-                "<img id=\"stream\" src=\"/camera/frame\" style=\"max-width: 100%; height: auto; display: block;\" onerror=\"this.src='/camera/frame?t='+Date.now()\" />");
+                "<img id=\"stream\" src=\"/camera/frame\" style=\"max-width: 100%; height: auto; display: block;\" ");
+        html.append("onerror=\"handleStreamError()\" onload=\"streamLoaded()\" />");
         html.append(
                 "<div id=\"stream-overlay\" style=\"position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 5px; font-size: 0.8rem;\">");
         html.append("<span id=\"stream-status\" style=\"color: #2ecc71;\">&#9679; LIVE</span>");
+        html.append("<span id=\"fps-counter\" style=\"color: #888; margin-left: 10px;\"></span>");
         html.append("</div>");
+        html.append(
+                "<div id=\"loading\" style=\"position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff;\">Loading...</div>");
         html.append(
                 "<div id=\"rec-indicator\" style=\"position: absolute; top: 10px; right: 10px; background: rgba(231, 76, 60, 0.9); padding: 5px 10px; border-radius: 5px; font-size: 0.8rem; display: none;\">");
         html.append("<span style=\"color: #fff;\">&#9679; REC</span>");
@@ -1094,16 +1168,35 @@ public class RavanHttpServer extends NanoHTTPD {
         html.append("</div>");
         html.append("</div>");
 
-        // Controls
+        // Resolution selector
+        html.append("<div style=\"margin-bottom: 20px; text-align: center;\">");
         html.append(
-                "<div style=\"display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px;\">");
+                "<h4 style=\"color: #888; margin-bottom: 10px; font-size: 0.9rem;\">&#128246; Resolution (for slow internet, choose lower)</h4>");
+        html.append("<div style=\"display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;\">");
+
+        String[] resOptions = { "ultra_low", "very_low", "low", "medium", "high", "very_high", "hd" };
+        String[] resNames = { "Ultra Low", "Very Low", "Low", "Medium", "High", "Very High", "HD" };
+        for (int i = 0; i < resOptions.length; i++) {
+            String selected = resOptions[i].equals(res) ? "background: #e94560; color: #fff;"
+                    : "background: rgba(255,255,255,0.1);";
+            html.append("<a href=\"/camera/live?cam=").append(camId).append("&res=").append(resOptions[i])
+                    .append("\" ");
+            html.append("style=\"padding: 8px 12px; ").append(selected)
+                    .append(" border-radius: 6px; color: #fff; text-decoration: none; font-size: 0.8rem;\">");
+            html.append(resNames[i]);
+            html.append("</a>");
+        }
+        html.append("</div>");
+        html.append("</div>");
 
         // Camera selection
+        html.append(
+                "<div style=\"display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px;\">");
         CameraHelper cameraHelper = new CameraHelper(context);
         java.util.List<CameraHelper.CameraInfo> cameras = cameraHelper.getAvailableCameras();
         for (CameraHelper.CameraInfo cam : cameras) {
             String selected = cam.id.equals(camId) ? "background: #e94560; color: #fff;" : "";
-            html.append("<a href=\"/camera/live?cam=").append(cam.id).append("\" ");
+            html.append("<a href=\"/camera/live?cam=").append(cam.id).append("&res=").append(res).append("\" ");
             html.append(
                     "style=\"padding: 10px 20px; background: rgba(255,255,255,0.1); border-radius: 8px; color: #fff; text-decoration: none; ")
                     .append(selected).append("\">");
@@ -1126,21 +1219,56 @@ public class RavanHttpServer extends NanoHTTPD {
         html.append(
                 "<div id=\"status\" style=\"text-align: center; margin-top: 20px; color: #888; font-size: 0.9rem;\"></div>");
 
-        // JavaScript for live stream
+        // JavaScript for live stream with optimizations
         html.append("<script>");
         html.append("var camId = '").append(camId).append("';");
+        html.append("var streamWidth = ").append(width).append(";");
+        html.append("var streamHeight = ").append(height).append(";");
+        html.append("var streamQuality = ").append(quality).append(";");
+        html.append("var refreshRate = ").append(refreshRate).append(";");
         html.append("var isRecording = false;");
         html.append("var streamImg = document.getElementById('stream');");
-        html.append("var refreshRate = 100;"); // 10 FPS
+        html.append("var loadingDiv = document.getElementById('loading');");
+        html.append("var fpsCounter = document.getElementById('fps-counter');");
+        html.append("var frameCount = 0;");
+        html.append("var lastFpsTime = Date.now();");
+        html.append("var errorCount = 0;");
+        html.append("var streamActive = true;");
 
-        // Start streaming
+        // Start streaming with current resolution
         html.append("function startStream() {");
-        html.append("  fetch('/camera/start-stream?cam=' + camId + '&width=640&height=480&quality=60');");
-        html.append("  setTimeout(refreshFrame, 500);");
+        html.append(
+                "  fetch('/camera/start-stream?cam=' + camId + '&width=' + streamWidth + '&height=' + streamHeight + '&quality=' + streamQuality);");
+        html.append("  setTimeout(refreshFrame, 1000);");
         html.append("}");
 
-        // Refresh frame
+        // Handle stream load success
+        html.append("function streamLoaded() {");
+        html.append("  loadingDiv.style.display = 'none';");
+        html.append("  errorCount = 0;");
+        html.append("  frameCount++;");
+        html.append("  var now = Date.now();");
+        html.append("  if (now - lastFpsTime >= 1000) {");
+        html.append("    fpsCounter.innerHTML = frameCount + ' fps';");
+        html.append("    frameCount = 0;");
+        html.append("    lastFpsTime = now;");
+        html.append("  }");
+        html.append("}");
+
+        // Handle stream error with retry
+        html.append("function handleStreamError() {");
+        html.append("  errorCount++;");
+        html.append("  if (errorCount < 10) {");
+        html.append("    setTimeout(function() { streamImg.src = '/camera/frame?t=' + Date.now(); }, 500);");
+        html.append("  } else {");
+        html.append(
+                "    loadingDiv.innerHTML = 'Stream error. <a href=\"javascript:location.reload()\" style=\"color:#e94560\">Reload</a>';");
+        html.append("  }");
+        html.append("}");
+
+        // Refresh frame with adaptive timing
         html.append("function refreshFrame() {");
+        html.append("  if (!streamActive) return;");
         html.append("  streamImg.src = '/camera/frame?t=' + Date.now();");
         html.append("  setTimeout(refreshFrame, refreshRate);");
         html.append("}");
@@ -1181,8 +1309,11 @@ public class RavanHttpServer extends NanoHTTPD {
         html.append("      document.getElementById('rec-btn').innerHTML = '&#9632; Stop Recording';");
         html.append("      isRecording = true;");
         html.append("    }");
-        html.append("  });");
+        html.append("  }).catch(e => {});");
         html.append("}");
+
+        // Stop stream when leaving page
+        html.append("window.onbeforeunload = function() { streamActive = false; };");
 
         html.append("startStream();");
         html.append("checkStatus();");
@@ -1195,12 +1326,13 @@ public class RavanHttpServer extends NanoHTTPD {
     }
 
     private Response serveMJPEGStream(Map<String, String> params) {
-        // Start stream if not already
+        // Start stream if not already - use low resolution by default for mobile data
         if (!CameraService.isCurrentlyStreaming()) {
             String camId = params.get("cam");
-            startCameraStreamInternal(camId != null ? camId : "0", 640, 480, 50);
+            // Default to 320x240 with low quality for mobile data compatibility
+            startCameraStreamInternal(camId != null ? camId : "0", 320, 240, 30);
             try {
-                Thread.sleep(500);
+                Thread.sleep(800); // Give more time for camera to start
             } catch (InterruptedException e) {
             }
         }
