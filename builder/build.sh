@@ -459,7 +459,7 @@ configure_app() {
 
 # Build APK
 build_apk() {
-    echo -e "${CYAN}[*] Building APK...${NC}"
+    echo -e "${CYAN}[*] Building APKs...${NC}"
     echo ""
     
     cd "$PROJECT_DIR"
@@ -480,11 +480,23 @@ build_apk() {
         echo ""
     fi
     
-    echo -e "${CYAN}[*] Running Gradle build...${NC}"
+    # Create output folder
+    OUTPUT_DIR="$SCRIPT_DIR/output"
+    mkdir -p "$OUTPUT_DIR"
+    
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    APP_NAME_SAFE=$(echo "${APP_NAME:-Ravan}" | tr ' ' '_')
+    VERSION="${VERSION_NAME:-2.0}"
+    
+    APK_FOUND=false
+    
+    # ---------------------------------------------------------
+    # 1. Build Signed APK
+    # ---------------------------------------------------------
+    echo -e "${CYAN}[*] Step 1/2: Generating Signed APK...${NC}"
     echo ""
     
-    # Build both release and debug APK
-    ./gradlew assembleRelease assembleDebug --no-daemon 2>&1 | while read line; do
+    ./gradlew clean assembleRelease --no-daemon 2>&1 | while read line; do
         if [[ $line == *"BUILD SUCCESSFUL"* ]]; then
             echo -e "${GREEN}$line${NC}"
         elif [[ $line == *"BUILD FAILED"* ]] || [[ $line == *"FAILURE"* ]]; then
@@ -496,16 +508,6 @@ build_apk() {
         fi
     done
     
-    # Create output folder
-    OUTPUT_DIR="$SCRIPT_DIR/output"
-    mkdir -p "$OUTPUT_DIR"
-    
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    APP_NAME_SAFE=$(echo "${APP_NAME:-Ravan}" | tr ' ' '_')
-    VERSION="${VERSION_NAME:-2.0}"
-    
-    APK_FOUND=false
-    
     # Signed release APK
     RELEASE_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
     if [ -f "$RELEASE_APK" ]; then
@@ -513,24 +515,47 @@ build_apk() {
         cp "$RELEASE_APK" "$OUTPUT_SIGNED"
         echo -e "${GREEN}[✓] Signed APK: $OUTPUT_SIGNED${NC}"
         APK_FOUND=true
+    else
+        echo -e "${RED}[!] Signed APK generation failed.${NC}"
     fi
+    
+    # ---------------------------------------------------------
+    # 2. Build Unsigned APK
+    # ---------------------------------------------------------
+    echo ""
+    echo -e "${CYAN}[*] Step 2: Generating Unsigned APK...${NC}"
+    echo ""
+    
+    ./gradlew clean assembleRelease -PdisableSigning --no-daemon 2>&1 | while read line; do
+         if [[ $line == *"BUILD SUCCESSFUL"* ]]; then
+            echo -e "${GREEN}$line${NC}"
+        elif [[ $line == *"BUILD FAILED"* ]] || [[ $line == *"FAILURE"* ]]; then
+            echo -e "${RED}$line${NC}"
+        elif [[ $line == *"> Task"* ]]; then
+            echo -e "${BLUE}$line${NC}"
+        else
+            echo "$line"
+        fi
+    done
     
     # Unsigned release APK
     UNSIGNED_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release-unsigned.apk"
+    
+    # Fallback checks
+    if [ ! -f "$UNSIGNED_APK" ]; then
+         UNSIGNED_APK_FALLBACK="$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
+         if [ -f "$UNSIGNED_APK_FALLBACK" ]; then
+             UNSIGNED_APK="$UNSIGNED_APK_FALLBACK"
+         fi
+    fi
+    
     if [ -f "$UNSIGNED_APK" ]; then
         OUTPUT_UNSIGNED="$OUTPUT_DIR/${APP_NAME_SAFE}-v${VERSION}-unsigned-${TIMESTAMP}.apk"
         cp "$UNSIGNED_APK" "$OUTPUT_UNSIGNED"
         echo -e "${GREEN}[✓] Unsigned APK: $OUTPUT_UNSIGNED${NC}"
         APK_FOUND=true
-    fi
-    
-    # Debug APK
-    DEBUG_APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
-    if [ -f "$DEBUG_APK" ]; then
-        OUTPUT_DEBUG="$OUTPUT_DIR/${APP_NAME_SAFE}-v${VERSION}-debug-${TIMESTAMP}.apk"
-        cp "$DEBUG_APK" "$OUTPUT_DEBUG"
-        echo -e "${GREEN}[✓] Debug APK: $OUTPUT_DEBUG${NC}"
-        APK_FOUND=true
+    else
+        echo -e "${RED}[!] Unsigned APK generation failed.${NC}"
     fi
     
     if [ "$APK_FOUND" = true ]; then
@@ -570,13 +595,12 @@ main_menu() {
     
     echo -e "${PURPLE}[>] Build Options:${NC}"
     echo ""
-    echo "    1. Full Build (Configure everything + Build)"
-    echo "    2. Quick Build (Use existing config)"
-    echo "    3. Generate Keystore Only"
-    echo "    4. Configure Logo Only"
-    echo "    5. Configure App Settings Only"
-    echo "    6. Check/Install Requirements"
-    echo "    7. Exit"
+    echo "    1. Start Build (Configure & Build)"
+    echo "    2. Generate Keystore Only"
+    echo "    3. Configure Logo Only"
+    echo "    4. Configure App Settings Only"
+    echo "    5. Check/Install Requirements"
+    echo "    6. Exit"
     echo ""
     read -p "    Choose option [1]: " MENU_OPTION
     MENU_OPTION=${MENU_OPTION:-1}
@@ -593,13 +617,9 @@ main_menu() {
             ;;
         2)
             check_requirements
-            build_apk
-            ;;
-        3)
-            check_requirements
             generate_keystore
             ;;
-        4)
+        3)
             detect_os
             HAS_IMAGEMAGICK=false
             if command -v convert &> /dev/null; then
@@ -607,13 +627,13 @@ main_menu() {
             fi
             configure_logo
             ;;
-        5)
+        4)
             configure_app
             ;;
-        6)
+        5)
             check_requirements
             ;;
-        7)
+        6)
             echo -e "${CYAN}[*] Goodbye!${NC}"
             echo -e "${PURPLE}    Follow: https://github.com/someshsrichandan${NC}"
             exit 0

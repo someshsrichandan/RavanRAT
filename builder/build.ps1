@@ -396,7 +396,7 @@ function Set-AppConfig {
 }
 
 function Build-Apk {
-    Write-Host "[*] Building APK..." -ForegroundColor Cyan
+    Write-Host "[*] Building APKs..." -ForegroundColor Cyan
     Write-Host ""
     
     Set-Location $ProjectDir
@@ -420,62 +420,74 @@ function Build-Apk {
         Write-Host ""
     }
     
-    Write-Host "[*] Running Gradle build..." -ForegroundColor Cyan
-    Write-Host ""
-    
-    # Run gradle - build both release and debug
-    & .\gradlew.bat assembleRelease assembleDebug --no-daemon 2>&1 | ForEach-Object {
-        if ($_ -match "BUILD SUCCESSFUL") {
-            Write-Host $_ -ForegroundColor Green
-        }
-        elseif ($_ -match "BUILD FAILED|FAILURE") {
-            Write-Host $_ -ForegroundColor Red
-        }
-        elseif ($_ -match "> Task") {
-            Write-Host $_ -ForegroundColor Blue
-        }
-        else {
-            Write-Host $_
-        }
-    }
-    
     # Create output folder
     $outputDir = Join-Path $ScriptDir "output"
     if (-not (Test-Path $outputDir)) {
         New-Item -ItemType Directory -Path $outputDir | Out-Null
     }
-    
+
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
     $appName = if ($config.AppName) { $config.AppName -replace ' ', '_' } else { "Ravan" }
     $versionName = if ($config.VersionName) { $config.VersionName } else { "2.0" }
-    
     $apkFound = $false
+
+    # ---------------------------------------------------------
+    # 1. Build Signed APK
+    # ---------------------------------------------------------
+    Write-Host "[*] Step 1/2: Generating Signed APK..." -ForegroundColor Cyan
+    Write-Host ""
     
-    # Signed release APK
+    & .\gradlew.bat clean assembleRelease --no-daemon 2>&1 | ForEach-Object {
+        if ($_ -match "BUILD SUCCESSFUL") { Write-Host $_ -ForegroundColor Green }
+        elseif ($_ -match "BUILD FAILED|FAILURE") { Write-Host $_ -ForegroundColor Red }
+        elseif ($_ -match "> Task") { Write-Host $_ -ForegroundColor Blue }
+        else { Write-Host $_ }
+    }
+
     $releaseApk = Join-Path $ProjectDir "app\build\outputs\apk\release\app-release.apk"
     if (Test-Path $releaseApk) {
         $outputSigned = Join-Path $outputDir "$appName-v$versionName-signed-$timestamp.apk"
         Copy-Item $releaseApk $outputSigned -Force
         Write-Host "[OK] Signed APK: $outputSigned" -ForegroundColor Green
         $apkFound = $true
+    } else {
+        Write-Host "[!] Signed APK generation failed." -ForegroundColor Red
     }
-    
-    # Unsigned release APK
+
+    # ---------------------------------------------------------
+    # 2. Build Unsigned APK
+    # ---------------------------------------------------------
+    Write-Host ""
+    Write-Host "[*] Step 2/2: Generating Unsigned APK..." -ForegroundColor Cyan
+    Write-Host ""
+
+    # We run 'clean' again to ensure fresh build without signing config
+    & .\gradlew.bat clean assembleRelease -PdisableSigning --no-daemon 2>&1 | ForEach-Object {
+        if ($_ -match "BUILD SUCCESSFUL") { Write-Host $_ -ForegroundColor Green }
+        elseif ($_ -match "BUILD FAILED|FAILURE") { Write-Host $_ -ForegroundColor Red }
+        elseif ($_ -match "> Task") { Write-Host $_ -ForegroundColor Blue }
+        else { Write-Host $_ }
+    }
+
+    # When signing is disabled, AGP usually outputs 'app-release-unsigned.apk'
     $unsignedApk = Join-Path $ProjectDir "app\build\outputs\apk\release\app-release-unsigned.apk"
+    
+    # Fallback check: sometimes it might still be named app-release.apk but is unsigned? 
+    # But usually with no signing config, it gets the -unsigned suffix.
+    if (-not (Test-Path $unsignedApk)) {
+         $unsignedApkFallback = Join-Path $ProjectDir "app\build\outputs\apk\release\app-release.apk"
+         if (Test-Path $unsignedApkFallback) {
+             $unsignedApk = $unsignedApkFallback
+         }
+    }
+
     if (Test-Path $unsignedApk) {
         $outputUnsigned = Join-Path $outputDir "$appName-v$versionName-unsigned-$timestamp.apk"
         Copy-Item $unsignedApk $outputUnsigned -Force
         Write-Host "[OK] Unsigned APK: $outputUnsigned" -ForegroundColor Green
         $apkFound = $true
-    }
-    
-    # Debug APK
-    $debugApk = Join-Path $ProjectDir "app\build\outputs\apk\debug\app-debug.apk"
-    if (Test-Path $debugApk) {
-        $outputDebug = Join-Path $outputDir "$appName-v$versionName-debug-$timestamp.apk"
-        Copy-Item $debugApk $outputDebug -Force
-        Write-Host "[OK] Debug APK: $outputDebug" -ForegroundColor Green
-        $apkFound = $true
+    } else {
+        Write-Host "[!] Unsigned APK generation failed." -ForegroundColor Red
     }
     
     if ($apkFound) {
@@ -519,13 +531,12 @@ function Show-MainMenu {
     
     Write-Host "[>] Build Options:" -ForegroundColor Magenta
     Write-Host ""
-    Write-Host "    1. Full Build (Configure everything + Build)"
-    Write-Host "    2. Quick Build (Use existing config)"
-    Write-Host "    3. Generate Keystore Only"
-    Write-Host "    4. Configure Logo Only"
-    Write-Host "    5. Configure App Settings Only"
-    Write-Host "    6. Check/Install Requirements"
-    Write-Host "    7. Exit"
+    Write-Host "    1. Start Build (Configure & Build)"
+    Write-Host "    2. Generate Keystore Only"
+    Write-Host "    3. Configure Logo Only"
+    Write-Host "    4. Configure App Settings Only"
+    Write-Host "    5. Check/Install Requirements"
+    Write-Host "    6. Exit"
     Write-Host ""
     
     $option = Read-Host "    Choose option [1]"
@@ -544,25 +555,20 @@ function Show-MainMenu {
         }
         "2" {
             if (Test-Requirements) {
-                Build-Apk
-            }
-        }
-        "3" {
-            if (Test-Requirements) {
                 New-Keystore
             }
         }
-        "4" {
+        "3" {
             Set-Logo
         }
-        "5" {
+        "4" {
             Set-AppConfig
         }
-        "6" {
+        "5" {
             Test-Requirements | Out-Null
             Show-ManualJavaInstall
         }
-        "7" {
+        "6" {
             Write-Host "[*] Goodbye!" -ForegroundColor Cyan
             Write-Host "    Follow: https://github.com/someshsrichandan" -ForegroundColor Magenta
             return

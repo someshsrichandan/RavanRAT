@@ -317,7 +317,7 @@ echo.
 goto :eof
 
 :build_apk
-echo [96m[*] Building APK...[0m
+echo [96m[*] Building APKs...[0m
 echo.
 
 cd /d "%PROJECT_DIR%"
@@ -339,11 +339,6 @@ if not exist "!KEYSTORE_FILE!" (
     echo.
 )
 
-echo [96m[*] Running Gradle build...[0m
-echo.
-
-call gradlew.bat assembleRelease assembleDebug
-
 REM Create output folder
 set "OUTPUT_DIR=%SCRIPT_DIR%output"
 if not exist "!OUTPUT_DIR!" mkdir "!OUTPUT_DIR!"
@@ -355,9 +350,17 @@ set "TIMESTAMP=!datetime:~0,8!_!datetime:~8,6!"
 REM Create safe app name
 set "APP_NAME_SAFE=!APP_NAME: =_!"
 if "!APP_NAME_SAFE!"=="" set "APP_NAME_SAFE=Ravan"
+if "!VERSION_NAME!"=="" set "VERSION_NAME=2.0"
 
-REM Check for APKs and copy them
 set "APK_FOUND=0"
+
+REM ---------------------------------------------------------
+REM 1. Build Signed APK
+REM ---------------------------------------------------------
+echo [96m[*] Step 1/2: Generating Signed APK...[0m
+echo.
+
+call gradlew.bat clean assembleRelease
 
 REM Signed release APK
 set "RELEASE_APK=%PROJECT_DIR%\app\build\outputs\apk\release\app-release.apk"
@@ -366,24 +369,35 @@ if exist "!RELEASE_APK!" (
     copy /Y "!RELEASE_APK!" "!OUTPUT_SIGNED!" >nul
     echo [92m[✓] Signed APK: !OUTPUT_SIGNED![0m
     set "APK_FOUND=1"
+) else (
+    echo [91m[!] Signed APK generation failed.[0m
 )
+
+REM ---------------------------------------------------------
+REM 2. Build Unsigned APK
+REM ---------------------------------------------------------
+echo.
+echo [96m[*] Step 2/2: Generating Unsigned APK...[0m
+echo.
+
+call gradlew.bat clean assembleRelease -PdisableSigning
 
 REM Unsigned release APK
 set "UNSIGNED_APK=%PROJECT_DIR%\app\build\outputs\apk\release\app-release-unsigned.apk"
+
+REM Fallback check
+if not exist "!UNSIGNED_APK!" (
+    set "UNSIGNED_APK_FALLBACK=%PROJECT_DIR%\app\build\outputs\apk\release\app-release.apk"
+    if exist "!UNSIGNED_APK_FALLBACK!" set "UNSIGNED_APK=!UNSIGNED_APK_FALLBACK!"
+)
+
 if exist "!UNSIGNED_APK!" (
     set "OUTPUT_UNSIGNED=!OUTPUT_DIR!\!APP_NAME_SAFE!-v!VERSION_NAME!-unsigned-!TIMESTAMP!.apk"
     copy /Y "!UNSIGNED_APK!" "!OUTPUT_UNSIGNED!" >nul
     echo [92m[✓] Unsigned APK: !OUTPUT_UNSIGNED![0m
     set "APK_FOUND=1"
-)
-
-REM Debug APK
-set "DEBUG_APK=%PROJECT_DIR%\app\build\outputs\apk\debug\app-debug.apk"
-if exist "!DEBUG_APK!" (
-    set "OUTPUT_DEBUG=!OUTPUT_DIR!\!APP_NAME_SAFE!-v!VERSION_NAME!-debug-!TIMESTAMP!.apk"
-    copy /Y "!DEBUG_APK!" "!OUTPUT_DEBUG!" >nul
-    echo [92m[✓] Debug APK: !OUTPUT_DEBUG![0m
-    set "APK_FOUND=1"
+) else (
+    echo [91m[!] Unsigned APK generation failed.[0m
 )
 
 if "!APK_FOUND!"=="0" (
@@ -427,13 +441,12 @@ call :print_banner
 
 echo [95m[^>] Build Options:[0m
 echo.
-echo     1. Full Build (Configure everything + Build)
-echo     2. Quick Build (Use existing config)
-echo     3. Generate Keystore Only
-echo     4. Configure Logo Only
-echo     5. Configure App Settings Only
-echo     6. Check/Install Requirements
-echo     7. Exit
+echo     1. Start Build (Configure & Build)
+echo     2. Generate Keystore Only
+echo     3. Configure Logo Only
+echo     4. Configure App Settings Only
+echo     5. Check/Install Requirements
+echo     6. Exit
 echo.
 set /p "MENU_OPTION=    Choose option [1]: "
 if "!MENU_OPTION!"=="" set "MENU_OPTION=1"
@@ -448,18 +461,15 @@ if "!MENU_OPTION!"=="1" (
     call :build_apk
 ) else if "!MENU_OPTION!"=="2" (
     call :check_requirements
-    call :build_apk
-) else if "!MENU_OPTION!"=="3" (
-    call :check_requirements
     call :generate_keystore
-) else if "!MENU_OPTION!"=="4" (
+) else if "!MENU_OPTION!"=="3" (
     call :configure_logo
-) else if "!MENU_OPTION!"=="5" (
+) else if "!MENU_OPTION!"=="4" (
     call :configure_app
-) else if "!MENU_OPTION!"=="6" (
+) else if "!MENU_OPTION!"=="5" (
     call :check_requirements
     call :show_manual_java_install
-) else if "!MENU_OPTION!"=="7" (
+) else if "!MENU_OPTION!"=="6" (
     echo [96m[*] Goodbye![0m
     echo [95m    Follow: https://github.com/someshsrichandan[0m
     exit /b 0

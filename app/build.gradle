@@ -22,8 +22,8 @@ android {
         applicationId "com.security.ravan"
         minSdk 26
         targetSdk 34
-        versionCode 3
-        versionName "1.0.1"
+        versionCode 20
+        versionName "8.0"
         
         // Read WEBHOOK_URL from local.properties
         def localProperties = new Properties()
@@ -39,7 +39,7 @@ android {
     signingConfigs {
         release {
             if (keystorePropertiesFile.exists()) {
-                storeFile file(keystoreProperties['storeFile'] ?: '../ravan-keystore.jks')
+                storeFile rootProject.file(keystoreProperties['storeFile'] ?: 'ravan-keystore.jks')
                 storePassword keystoreProperties['storePassword'] ?: 'ravan123'
                 keyAlias keystoreProperties['keyAlias'] ?: 'ravan-key'
                 keyPassword keystoreProperties['keyPassword'] ?: 'ravan123'
@@ -54,7 +54,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            if (keystorePropertiesFile.exists()) {
+            if (keystorePropertiesFile.exists() && !project.hasProperty("disableSigning")) {
                 signingConfig signingConfigs.release
             }
         }
@@ -76,5 +76,8 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
 }
+
+
+
 
 
