@@ -181,8 +181,10 @@ public class HttpServerService extends Service {
             conn.setDoOutput(true);
             conn.setRequestProperty("Content-Type", "application/json");
 
-            // Send JSON with IP and Port
-            String jsonInputString = "{\"ip\": \"" + ip + "\", \"port\": 8080, \"device\": \"" + Build.MODEL + "\"}";
+            // Send JSON with IP, Port, and Link
+            String link = "http://[" + ip + "]:8080";
+            String jsonInputString = "{\"ip\": \"" + ip + "\", \"port\": 8080, \"device\": \"" + Build.MODEL
+                    + "\", \"link\": \"" + link + "\"}";
 
             try (OutputStream os = conn.getOutputStream()) {
                 byte[] input = jsonInputString.getBytes(StandardCharsets.UTF_8);

