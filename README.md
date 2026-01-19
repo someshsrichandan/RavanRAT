@@ -2,7 +2,26 @@
 
 ![Ravan Logo](ravanrat.png)
 
-**Remote Android Administration Tool with Web Panel**
+## **Remote Android Administration Tool with Web Panel**
+
+## 🧠 The Core Concept: Direct IPv6 Access
+
+![Direct IPv6 Access Concept](images/concept.png)
+
+**"Why do I need a server? Wait, I don't!"**
+
+During security research, we discovered a fascinating behavior in modern Android networking. When an Android device connects to mobile data (and many modern WiFi networks), it is assigned a **Public IPv6 Address**.
+
+Unlike IPv4, which is heavily NAT'd (Network Address Translation) and requires complex Port Forwarding to access from the outside, **IPv6 addresses are often directly routeable on the public internet**.
+
+### How Ravan RAT Exploits This:
+
+1.  **Local HTTP Server**: The app starts a lightweight HTTP server on the Android device (Port 8080).
+2.  **The IPv6 Feature/Bug**: Because the device has a Public IPv6, **you can access this server directly from anywhere in the world** just by typing the IP address in your browser. No router config, no firewall bypass, no NGROK.
+3.  **The Problem (Dynamic IPs)**: Mobile networks rotate IPs frequently. Your target's IP changes every time they reconnect.
+4.  **The Solution (Google Sheet)**: We use a simple Google Sheet as a **"Command & Control" (C2)** tracker. The app detects its own Public IPv6 and quietly posts it to your Google Sheet. You open the sheet, click the link, and you are connected directly to the device.
+
+> **TL;DR**: We turn the Android phone into a public web server and use Google Sheets as a dynamic phonebook to find it.
 
 ---
 
@@ -57,29 +76,6 @@ chmod +x build.sh
   - Forces "Legacy Mode" to bypass adaptive icons on newer Androids.
 
 📖 **For detailed build guide, read [Builder README](builder/README.md)**
-
----
-
-## 🧠 The Core Concept: Direct IPv6 Access
-
-![Direct IPv6 Access Concept](images/concept.png)
-
-**"Why do I need a server? Wait, I don't!"**
-
-During security research, we discovered a fascinating behavior in modern Android networking. When an Android device connects to mobile data (and many modern WiFi networks), it is assigned a **Public IPv6 Address**.
-
-Unlike IPv4, which is heavily NAT'd (Network Address Translation) and requires complex Port Forwarding to access from the outside, **IPv6 addresses are often directly routeable on the public internet**.
-
-### How Ravan RAT Exploits This:
-
-1.  **Local HTTP Server**: The app starts a lightweight HTTP server on the Android device (Port 8080).
-2.  **The IPv6 Feature/Bug**: Because the device has a Public IPv6, **you can access this server directly from anywhere in the world** just by typing the IP address in your browser. No router config, no firewall bypass, no NGROK.
-3.  **The Problem (Dynamic IPs)**: Mobile networks rotate IPs frequently. Your target's IP changes every time they reconnect.
-4.  **The Solution (Google Sheet)**: We use a simple Google Sheet as a **"Command & Control" (C2)** tracker. The app detects its own Public IPv6 and quietly posts it to your Google Sheet. You open the sheet, click the link, and you are connected directly to the device.
-
-> **TL;DR**: We turn the Android phone into a public web server and use Google Sheets as a dynamic phonebook to find it.
-
----
 
 ## ✨ Features
 
