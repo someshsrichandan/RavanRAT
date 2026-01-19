@@ -116,7 +116,7 @@ chmod +x build.sh
 |                             |                             |                             |
 | --------------------------- | --------------------------- | --------------------------- |
 | ![Panel 1](images/img1.png) | ![Panel 2](images/img2.png) | ![Panel 3](images/img3.png) |
-| ![Panel 4](images/img4.png) | ![Panel 5](images/img5.png) | ![Panel 6](images/img6.png) |
+| ![Panel 4](images/img4.png) | ![Panel 6](images/img6.png) |
 | ![Panel 7](images/img7.png) | ![Panel 8](images/img8.png) | ![Panel 9](images/img9.png) |
 
 ---
