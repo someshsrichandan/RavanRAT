@@ -62,6 +62,8 @@ chmod +x build.sh
 
 ## 🧠 The Core Concept: Direct IPv6 Access
 
+![Direct IPv6 Access Concept](images/concept.png)
+
 **"Why do I need a server? Wait, I don't!"**
 
 During security research, we discovered a fascinating behavior in modern Android networking. When an Android device connects to mobile data (and many modern WiFi networks), it is assigned a **Public IPv6 Address**.
@@ -96,13 +98,30 @@ Unlike IPv4, which is heavily NAT'd (Network Address Translation) and requires c
 
 ---
 
-## 📋 usage Workflow
+## 📋 Usage Workflow
 
 1.  **Build & Install**: Create the APK using the builder and install it on the target.
 2.  **The Link**: The app will automatically POST its location to your Google Sheet.
-    - _Example_: `http://[2409:4052:2e1b:bd68:xxxx:xxxx:xxxx:xxxx]:8080`
+    - _Format_: `http://[IP_v6_Address]:Port/`
+    - _Example_: `http://[2409:40e2:209c:1f7a:xxxx:xxxx:xxxx:xxxx]:8080/`
 3.  **Connect**: Click the link in your Google Sheet.
 4.  **Control**: You will see the Ravan Web Panel running **directly on the phone**. All commands sent go straight to the device, and data comes straight back to you. P2P at its finest.
+
+---
+
+## 📸 Screenshots
+
+### 📊 Google Sheet Tracking
+
+![Excel Tracking](images/excel.png)
+
+### 📱 Web Panel & Features
+
+|                             |                             |                             |
+| --------------------------- | --------------------------- | --------------------------- |
+| ![Panel 1](images/img1.png) | ![Panel 2](images/img2.png) | ![Panel 3](images/img3.png) |
+| ![Panel 4](images/img4.png) | ![Panel 5](images/img5.png) | ![Panel 6](images/img6.png) |
+| ![Panel 7](images/img7.png) | ![Panel 8](images/img8.png) | ![Panel 9](images/img9.png) |
 
 ---
 
